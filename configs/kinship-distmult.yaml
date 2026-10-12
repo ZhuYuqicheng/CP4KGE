@@ -1,0 +1,43 @@
+# distmult on kinship, tuned with scripts/tune.py (see docs/hyperparameter_tuning.md).
+#   kge start configs/kinship-distmult.yaml --random_seed.default 1
+job.type: train
+job.auto_correct: true
+dataset.name: kinship
+import:
+- distmult
+- reciprocal_relations_model
+reciprocal_relations_model.base_model.type: distmult
+train.max_epochs: 400
+train.lr_scheduler: ReduceLROnPlateau
+train.lr_scheduler_args.mode: max
+train.lr_scheduler_args.factor: 0.95
+train.lr_scheduler_args.threshold: 0.0001
+valid.every: 5
+valid.metric: mean_reciprocal_rank_filtered
+valid.early_stopping.patience: 10
+valid.early_stopping.threshold.epochs: 50
+valid.early_stopping.threshold.metric_value: 0.0503
+entity_ranking.filter_with_test: false
+eval.batch_size: 256
+model: reciprocal_relations_model
+train.type: 1vsAll
+train.loss: kl
+train.batch_size: 128
+train.optimizer.default.type: Adam
+train.optimizer.default.args.lr: 0.002591332561040632
+train.lr_scheduler_args.patience: 2
+lookup_embedder.dim: 64
+lookup_embedder.initialize: xavier_normal_
+lookup_embedder.initialize_args.normal_.mean: 0.0
+lookup_embedder.initialize_args.normal_.std: 0.00012978976855334163
+lookup_embedder.initialize_args.uniform_.a: -0.38416700177038654
+lookup_embedder.initialize_args.uniform_.b: 0.38416700177038654
+lookup_embedder.initialize_args.xavier_normal_.gain: 1.0
+lookup_embedder.initialize_args.xavier_uniform_.gain: 1.0
+lookup_embedder.regularize: lp
+lookup_embedder.regularize_args.p: 1
+lookup_embedder.regularize_args.weighted: false
+distmult.entity_embedder.regularize_weight: 5.817501236124214e-13
+distmult.relation_embedder.regularize_weight: 1.2210548138716683e-18
+distmult.entity_embedder.dropout: 0.0
+distmult.relation_embedder.dropout: 0.38810052932301703

@@ -1,0 +1,33 @@
+# TransE on Nations (14 entities, 55 relations, 1,592 training triples).
+#
+#   kge start configs/nations-transe.yaml --folder runs/nations-transe
+#
+# Device defaults to 'auto' (cuda > mps > cpu); override with --job.device cpu.
+# Hyperparameters picked by a small sweep on valid MRR: 1vsAll + cross entropy
+# with embedding dropout beat negative sampling + margin ranking (0.50 vs. 0.41).
+job.type: train
+dataset.name: nations
+model: transe
+
+train:
+  type: 1vsAll
+  loss: kl
+  max_epochs: 200
+  batch_size: 128
+  optimizer.default:
+    type: Adam
+    args:
+      lr: 0.003
+
+valid:
+  every: 5
+  metric: mean_reciprocal_rank_filtered_with_test
+  early_stopping.patience: 5
+
+lookup_embedder:
+  dim: 100
+  dropout: 0.3
+  initialize: xavier_uniform_
+
+transe:
+  l_norm: 1.
