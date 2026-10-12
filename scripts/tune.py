@@ -17,11 +17,13 @@ every stage resumable), the final runs, and the selected configs and results.
 
 import argparse
 import json
+import multiprocessing
 import shutil
 import statistics
 import tempfile
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
+import warnings
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from functools import cache
 from pathlib import Path
 
@@ -33,6 +35,7 @@ from optuna.samplers import QMCSampler, TPESampler
 from optuna.storages import JournalStorage
 from optuna.storages.journal import JournalFileBackend
 from optuna.trial import TrialState
+from tqdm import tqdm
 
 from kge import Config, Dataset
 from kge.job import Job
@@ -264,6 +267,7 @@ def optimize(task) -> str:
         lambda trial: objective(trial, dataset, model, train_type, loss, phase),
         n_trials=n_trials,
         catch=(Exception,),
+        callbacks=[count_finished],
     )
     return f"{study.study_name} [{phase}]: best {study.best_value:.3f}"
 
@@ -297,21 +301,42 @@ def final_run(task) -> tuple:
         (folder / ".done").touch()
     trace = [yaml.safe_load(line) for line in (folder / "trace.yaml").read_text().splitlines()]
     valid = [e for e in trace if e.get("event") == "eval_completed" and e["split"] == "valid"]
+    count_finished()
     return task, max(valid, key=lambda entry: entry[METRIC]), folder
 
 
-def init_worker(runs: Path, trials: dict):
-    global RUNS, TRIALS
-    RUNS, TRIALS = runs, trials
+def init_worker(runs: Path, trials: dict, finished):
+    global RUNS, TRIALS, FINISHED
+    RUNS, TRIALS, FINISHED = runs, trials, finished
     torch.set_num_threads(1)  # tiny models: one thread per worker is fastest
     optuna.logging.set_verbosity(optuna.logging.ERROR)
+    warnings.filterwarnings("ignore", category=optuna.exceptions.ExperimentalWarning)
 
 
-def run_parallel(fn, tasks, workers):
-    """Runs tasks in submission order on worker processes; yields results as they finish."""
-    with ProcessPoolExecutor(workers, initializer=init_worker, initargs=(RUNS, TRIALS)) as pool:
-        for future in as_completed([pool.submit(fn, task) for task in tasks]):
-            yield future.result()
+def count_finished(*_):
+    """Counts a finished trial or final run for the progress bar of the main process."""
+    with FINISHED.get_lock():
+        FINISHED.value += 1
+
+
+def run_parallel(fn, tasks, workers, total, unit="trial"):
+    """Runs tasks in submission order on worker processes; yields results as they finish.
+
+    A progress bar shows the `total` trials (or final runs) that the workers count as
+    finished. Print with `tqdm.write` while it is shown.
+    """
+    finished = multiprocessing.Value("i", 0)
+    initargs = (RUNS, TRIALS, finished)
+    with (
+        ProcessPoolExecutor(workers, initializer=init_worker, initargs=initargs) as pool,
+        tqdm(total=total, unit=unit, smoothing=0) as bar,
+    ):
+        pending = {pool.submit(fn, task) for task in tasks}
+        while pending:
+            done, pending = wait(pending, timeout=1, return_when=FIRST_COMPLETED)
+            bar.update(finished.value - bar.n)
+            for future in done:
+                yield future.result()
 
 
 # --- commands ----------------------------------------------------------------------
@@ -324,8 +349,7 @@ def cmd_sobol(args):
         for t, l in COMBINATIONS
         if (n := prepare(d, m, t, l, "sobol"))
     ]
-    for line in run_parallel(optimize, tasks, args.workers):
-        print(line, flush=True)
+    run_studies(tasks, args.workers)
 
 
 def cmd_refine(args):
@@ -337,8 +361,14 @@ def cmd_refine(args):
             (d, m, *combination, "refine", min(REFINE_CHUNK, n - k), SEARCH_SEED + 1 + k)
             for k in range(0, n, REFINE_CHUNK)
         ]
-    for line in run_parallel(optimize, tasks, args.workers):
-        print(line, flush=True)
+    run_studies(tasks, args.workers)
+
+
+def run_studies(tasks, workers):
+    """Runs `optimize` tasks; prints the best value of each study when its trials are done."""
+    total = sum(n_trials for *_, n_trials, _seed in tasks)
+    for line in run_parallel(optimize, tasks, workers, total):
+        tqdm.write(line)
 
 
 def cmd_final(args):
@@ -347,9 +377,10 @@ def cmd_final(args):
         for rank, (_, trial) in enumerate(completed_trials(d, m)[:TOP_K], start=1):
             tasks += [(d, m, rank, trial.user_attrs["options"], seed) for seed in SEEDS]
     runs = {}
-    for (d, m, rank, options, seed), best, folder in run_parallel(final_run, tasks, args.workers):
+    results = run_parallel(final_run, tasks, args.workers, len(tasks), unit="run")
+    for (d, m, rank, options, seed), best, folder in results:
         runs.setdefault((d, m), {}).setdefault(rank, []).append((options, seed, best, folder))
-        print(f"{d}-{m} top{rank} seed{seed}: valid MRR {best[METRIC]:.3f}", flush=True)
+        tqdm.write(f"{d}-{m} top{rank} seed{seed}: valid MRR {best[METRIC]:.3f}")
 
     (RUNS / "results").mkdir(exist_ok=True)
     for (d, m), candidates in runs.items():
