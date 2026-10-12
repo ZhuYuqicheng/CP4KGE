@@ -306,6 +306,7 @@ dev = [
     { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
     { name = "scipy", version = "1.18.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "tqdm" },
 ]
 
 [package.metadata]
@@ -319,6 +320,7 @@ dev = [
     { name = "optuna", specifier = ">=5.0.0" },
     { name = "pytest" },
     { name = "scipy", specifier = ">=1.15.3" },
+    { name = "tqdm", specifier = ">=4.70.1" },
 ]
 
 [[package]]

@@ -227,8 +227,9 @@ done
 ```
 
 The stages are `sobol` (stage 1), `refine` (stage 2), `final` (stage 3: reruns,
-selection and test evaluation) and `report` (all trials as CSV). `--workers` sets the
-number of parallel processes (default 8). `--dir` and `--trials` allow a quick debug
+selection and test evaluation) and `report` (all trials as CSV). A progress bar shows
+the finished trials (final runs in stage 3) and the estimated remaining time. `--workers`
+sets the number of parallel processes (default 8). `--dir` and `--trials` allow a quick debug
 run in a separate directory, e.g. `--dir /tmp/hpo-debug --trials 2`.
 
 Everything is written to `runs/hpo/`: `journal.log` (all trials; every stage resumes
