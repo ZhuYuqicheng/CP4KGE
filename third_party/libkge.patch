@@ -1,0 +1,455 @@
+diff --git a/kge/config-default.yaml b/kge/config-default.yaml
+index 2f77ea2..061693a 100644
+--- a/kge/config-default.yaml
++++ b/kge/config-default.yaml
+@@ -27,8 +27,9 @@ job:
+   # the corresponding configuration keys for mode information.
+   type: train
+ 
+-  # Main device to use for this job (e.g., 'cpu', 'cuda', 'cuda:0')
+-  device: 'cuda'
++  # Main device to use for this job (e.g., 'cpu', 'cuda', 'cuda:0', 'mps'). 'auto'
++  # picks the best available device (cuda > mps > cpu).
++  device: 'auto'
+   
+   # When set, LibKGE automatically corrects certain invalid configuration
+   # options. Each such change is logged. When not set and the configuration is
+diff --git a/kge/config.py b/kge/config.py
+index 8385322..bd2bf5a 100644
+--- a/kge/config.py
++++ b/kge/config.py
+@@ -536,7 +536,7 @@ class Config:
+         "Return number (epoch) of latest checkpoint"
+         found_epoch = -1
+         for f in os.listdir(self.folder):
+-            if re.match("checkpoint_\d{5}\.pt", f):
++            if re.match(r"checkpoint_\d{5}\.pt", f):
+                 new_found_epoch = int(f.split("_")[1].split(".")[0])
+                 if new_found_epoch > found_epoch:
+                     found_epoch = new_found_epoch
+@@ -791,7 +791,7 @@ def _process_deprecated_options(options: Dict[str, Any]):
+ 
+     # 09.10.20
+     rename_key("train.optimizer", "train.optimizer.default.type")
+-    rename_keys_re("^train\.optimizer_args", "train.optimizer.default.args")
++    rename_keys_re(r"^train\.optimizer_args", "train.optimizer.default.args")
+ 
+     # 30.9.2020
+     if "verbose" in options:
+@@ -805,7 +805,7 @@ def _process_deprecated_options(options: Dict[str, Any]):
+ 
+     # 15.9.2020
+     rename_keys_re(
+-        "^valid\.early_stopping\.min_threshold\.", "valid.early_stopping.threshold."
++        r"^valid\.early_stopping\.min_threshold\.", "valid.early_stopping.threshold."
+     )
+ 
+     # 31.8.2020
+@@ -820,7 +820,7 @@ def _process_deprecated_options(options: Dict[str, Any]):
+     rename_key("eval.tie_handling", "entity_ranking.tie_handling")
+     rename_key("eval.hits_at_k_s", "entity_ranking.hits_at_k_s")
+     rename_key("eval.chunk_size", "entity_ranking.chunk_size")
+-    rename_keys_re("^eval\.metrics_per\.", "entity_ranking.metrics_per.")
++    rename_keys_re(r"^eval\.metrics_per\.", "entity_ranking.metrics_per.")
+ 
+     # 26.5.2020
+     delete_key_with_value("ax_search.fixed_parameters", [])
+diff --git a/kge/job/__init__.py b/kge/job/__init__.py
+index 67c3ab2..37f4fb2 100644
+--- a/kge/job/__init__.py
++++ b/kge/job/__init__.py
+@@ -13,5 +13,18 @@ from kge.job.search import SearchJob
+ from kge.job.search_grid import GridSearchJob
+ from kge.job.search_manual import ManualSearchJob
+ from kge.job.search_auto import AutoSearchJob
+-from kge.job.search_ax import AxSearchJob
+-from kge.job.search_grash import GraSHSearchJob
++
++# Search jobs with heavy optional dependencies (`pip install libkge[search]`) are
++# imported lazily on first access, so that training works without them.
++_LAZY_JOBS = {
++    "AxSearchJob": "kge.job.search_ax",
++    "GraSHSearchJob": "kge.job.search_grash",
++}
++
++
++def __getattr__(name):
++    if name in _LAZY_JOBS:
++        import importlib
++
++        return getattr(importlib.import_module(_LAZY_JOBS[name]), name)
++    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+diff --git a/kge/job/eval_entity_ranking.py b/kge/job/eval_entity_ranking.py
+index a8f2c5c..f76e82e 100644
+--- a/kge/job/eval_entity_ranking.py
++++ b/kge/job/eval_entity_ranking.py
+@@ -520,13 +520,14 @@ class EntityRankingJob(EvaluationJob):
+             indices_po_chunk[1, :] - num_entities - chunk_start * 2 + chunk_end
+         )
+         indices_chunk = torch.cat((indices_sp_chunk, indices_po_chunk), dim=1)
+-        dense_labels = torch.sparse.LongTensor(
++        dense_labels = torch.sparse_coo_tensor(
+             indices_chunk,
+             # since all sparse label tensors have the same value we could also
+             # create a new tensor here without indexing with:
+             # torch.full([indices_chunk.shape[1]], float("inf"), device=self.device)
+             labels._values()[mask_sp | mask_po],
+             torch.Size([labels.size()[0], (chunk_end - chunk_start) * 2]),
++            check_invariants=False,
+         ).to_dense()
+         return dense_labels
+ 
+@@ -634,8 +635,9 @@ num_ties for each true score.
+ 
+         hits_at_k = (
+             (
++                # on CPU, since MPS does not support float64
+                 torch.cumsum(
+-                    rank_hist[: max(self.hits_at_k_s)], dim=0, dtype=torch.float64
++                    rank_hist[: max(self.hits_at_k_s)].cpu(), dim=0, dtype=torch.float64
+                 )
+                 / n
+             ).tolist()
+diff --git a/kge/job/job.py b/kge/job/job.py
+index 7048327..81a8237 100644
+--- a/kge/job/job.py
++++ b/kge/job/job.py
+@@ -4,7 +4,7 @@ from kge import Config, Dataset
+ from kge.util import load_checkpoint
+ import uuid
+ 
+-from kge.misc import get_git_revision_short_hash
++from kge.misc import get_git_revision_short_hash, resolve_device
+ import os
+ import socket
+ from typing import Any, Callable, Dict, List, Optional
+@@ -18,7 +18,7 @@ def _trace_job_creation(job: "Job"):
+     username = os.path.split(userhome)[-1]
+     job.trace_entry = job.trace(
+         git_head=get_git_revision_short_hash(),
+-        torch_version=torch_version,
++        torch_version=str(torch_version),  # TorchVersion is not safe-loadable YAML
+         username=username,
+         hostname=socket.gethostname(),
+         folder=job.config.folder,
+@@ -44,6 +44,7 @@ class Job:
+ 
+     def __init__(self, config: Config, dataset: Dataset, parent_job: "Job" = None):
+         self.config = config
++        self.config.set("job.device", resolve_device(config.get("job.device")))
+         self.dataset = dataset
+         self.job_id = str(uuid.uuid4())
+         self.parent_job = parent_job
+diff --git a/kge/job/util.py b/kge/job/util.py
+index aa42cfe..f7b3734 100644
+--- a/kge/job/util.py
++++ b/kge/job/util.py
+@@ -43,18 +43,10 @@ def coord_to_sparse_tensor(
+         coords[:, 0] -= row_slice.start
+         nrows = row_slice.stop - row_slice.start
+ 
+-    if device == "cpu":
+-        labels = torch.sparse.FloatTensor(
+-            coords.long().t(),
+-            torch.ones([len(coords)], dtype=torch.float, device=device) * value,
+-            torch.Size([nrows, ncols]),
+-        )
+-    else:
+-        labels = torch.cuda.sparse.FloatTensor(
+-            coords.long().t(),
+-            torch.ones([len(coords)], dtype=torch.float, device=device) * value,
+-            torch.Size([nrows, ncols]),
+-            device=device,
+-        )
+-
+-    return labels
++    return torch.sparse_coo_tensor(
++        coords.long().t(),
++        torch.full([len(coords)], value, dtype=torch.float, device=device),
++        torch.Size([nrows, ncols]),
++        device=device,
++        check_invariants=False,
++    )
+diff --git a/kge/misc.py b/kge/misc.py
+index 31894cc..88dcebd 100644
+--- a/kge/misc.py
++++ b/kge/misc.py
+@@ -1,5 +1,6 @@
+ from typing import List, Union
+ 
++import torch
+ from torch import nn as nn
+ import os
+ from path import Path
+@@ -42,6 +43,17 @@ def init_from(
+         )
+ 
+ 
++def resolve_device(device: str) -> str:
++    """Resolves device "auto" to the best available one (cuda > mps > cpu)."""
++    if device != "auto":
++        return device
++    if torch.cuda.is_available():
++        return "cuda"
++    if torch.backends.mps.is_available():
++        return "mps"
++    return "cpu"
++
++
+ def is_number(s, number_type):
+     """ Returns True is string is a number. """
+     try:
+diff --git a/kge/model/kge_model.py b/kge/model/kge_model.py
+index 96b27a7..cb89862 100644
+--- a/kge/model/kge_model.py
++++ b/kge/model/kge_model.py
+@@ -9,7 +9,7 @@ import os
+ 
+ import kge
+ from kge import Config, Configurable, Dataset
+-from kge.misc import filename_in_module, init_from
++from kge.misc import filename_in_module, init_from, resolve_device
+ from kge.util import load_checkpoint
+ from typing import Any, Dict, List, Optional, Union, Tuple
+ 
+@@ -496,6 +496,7 @@ class KgeModel(KgeBase):
+                 configuration_key=configuration_key,
+                 init_for_load_only=init_for_load_only,
+             )
++            config.set("job.device", resolve_device(config.get("job.device")))
+             model.to(config.get("job.device"))
+             return model
+         except:
+diff --git a/kge/model/rotate.py b/kge/model/rotate.py
+index ec910a1..e2daa76 100644
+--- a/kge/model/rotate.py
++++ b/kge/model/rotate.py
+@@ -143,7 +143,6 @@ class RotatE(KgeModel):
+             job.post_batch_hooks.append(lambda job: self.normalize_phases())
+ 
+ 
+-@torch.jit.script
+ def pairwise_sum(X, Y):
+     """Compute pairwise sum of rows of X and Y.
+ 
+@@ -151,7 +150,6 @@ def pairwise_sum(X, Y):
+     return X.unsqueeze(1) + Y
+ 
+ 
+-@torch.jit.script
+ def pairwise_diff(X, Y):
+     """Compute pairwise difference of rows of X and Y.
+ 
+@@ -159,7 +157,6 @@ def pairwise_diff(X, Y):
+     return X.unsqueeze(1) - Y
+ 
+ 
+-@torch.jit.script
+ def pairwise_hadamard(X, Y):
+     """Compute pairwise Hadamard product of rows of X and Y.
+ 
+@@ -167,7 +164,6 @@ def pairwise_hadamard(X, Y):
+     return X.unsqueeze(1) * Y
+ 
+ 
+-@torch.jit.script
+ def hadamard_complex(x_re, x_im, y_re, y_im):
+     "Hadamard product for complex vectors"
+     result_re = x_re * y_re - x_im * y_im
+@@ -175,7 +171,6 @@ def hadamard_complex(x_re, x_im, y_re, y_im):
+     return result_re, result_im
+ 
+ 
+-@torch.jit.script
+ def pairwise_hadamard_complex(x_re, x_im, y_re, y_im):
+     "Pairwise Hadamard product for complex vectors"
+     result_re = pairwise_hadamard(x_re, y_re) - pairwise_hadamard(x_im, y_im)
+@@ -183,26 +178,22 @@ def pairwise_hadamard_complex(x_re, x_im, y_re, y_im):
+     return result_re, result_im
+ 
+ 
+-@torch.jit.script
+ def diff_complex(x_re, x_im, y_re, y_im):
+     "Difference of complex vectors"
+     return x_re - y_re, x_im - y_im
+ 
+ 
+-@torch.jit.script
+ def pairwise_diff_complex(x_re, x_im, y_re, y_im):
+     "Pairwise difference of complex vectors"
+     return pairwise_diff(x_re, y_re), pairwise_diff(x_im, y_im)
+ 
+ 
+-@torch.jit.script
+ def abs_complex(x_re, x_im):
+     "Compute magnitude of given complex numbers"
+     x_re_im = torch.stack((x_re, x_im), dim=0)  # dim0: real, imaginary
+     return torch.norm(x_re_im, dim=0)  # sqrt(real^2+imaginary^2)
+ 
+ 
+-@torch.jit.script
+ def norm_nonnegative(x, dim: int, p: float):
+     "Computes lp-norm along dim assuming that all inputs are non-negative."
+     if p == 1.0:
+diff --git a/kge/util/__init__.py b/kge/util/__init__.py
+index 7501788..7c517ad 100644
+--- a/kge/util/__init__.py
++++ b/kge/util/__init__.py
+@@ -3,5 +3,17 @@ from kge.util.optimizer import KgeOptimizer
+ from kge.util.optimizer import KgeLRScheduler
+ from kge.util.sampler import KgeSampler
+ from kge.util.io import load_checkpoint
+-from kge.util.subgraph import KCoreManager
+-from kge.util.configspace_converter import get_configspace
++
++# Utilities with heavy optional dependencies (igraph, ConfigSpace) are imported lazily.
++_LAZY_UTILS = {
++    "KCoreManager": "kge.util.subgraph",
++    "get_configspace": "kge.util.configspace_converter",
++}
++
++
++def __getattr__(name):
++    if name in _LAZY_UTILS:
++        import importlib
++
++        return getattr(importlib.import_module(_LAZY_UTILS[name]), name)
++    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+diff --git a/kge/util/dump.py b/kge/util/dump.py
+index 776af77..96723a4 100644
+--- a/kge/util/dump.py
++++ b/kge/util/dump.py
+@@ -86,7 +86,7 @@ def _dump_checkpoint(args):
+         checkpoint_file = Config.best_or_last_checkpoint_file(args.source)
+ 
+     # Load the checkpoint and strip some fieleds
+-    checkpoint = torch.load(checkpoint_file, map_location="cpu")
++    checkpoint = torch.load(checkpoint_file, map_location="cpu", weights_only=False)
+ 
+     # Dump it
+     print(f"# Dump of checkpoint: {checkpoint_file}")
+@@ -351,12 +351,12 @@ def _dump_trace(args):
+     job_id = None
+     # use job_id and truncate_epoch from checkpoint
+     if checkpoint_path and truncate_flag:
+-        checkpoint = torch.load(f=checkpoint_path, map_location="cpu")
++        checkpoint = torch.load(f=checkpoint_path, map_location="cpu", weights_only=False)
+         job_id = checkpoint["job_id"]
+         truncate_epoch = checkpoint["epoch"]
+     # only use job_id from checkpoint
+     elif checkpoint_path:
+-        checkpoint = torch.load(f=checkpoint_path, map_location="cpu")
++        checkpoint = torch.load(f=checkpoint_path, map_location="cpu", weights_only=False)
+         job_id = checkpoint["job_id"]
+     # no checkpoint specified job_id might have been set manually
+     elif args.job_id:
+@@ -673,7 +673,7 @@ def _dump_config(args):
+         config_file = args.source
+         config.load(config_file)
+     else:  # a checkpoint
+-        checkpoint = torch.load(args.source, map_location="cpu")
++        checkpoint = torch.load(args.source, map_location="cpu", weights_only=False)
+         if args.raw:
+             config = checkpoint["config"]
+         else:
+diff --git a/kge/util/io.py b/kge/util/io.py
+index 675687e..43d32ad 100644
+--- a/kge/util/io.py
++++ b/kge/util/io.py
+@@ -38,7 +38,7 @@ def load_checkpoint(checkpoint_file: str, device="cpu"):
+         raise IOError(
+             "Specified checkpoint file {} does not exist.".format(checkpoint_file)
+         )
+-    checkpoint = torch.load(checkpoint_file, map_location="cpu")
++    checkpoint = torch.load(checkpoint_file, map_location="cpu", weights_only=False)
+     if device is not None and "config" in checkpoint:
+         checkpoint["config"].set("job.device", device)
+     checkpoint["file"] = checkpoint_file
+diff --git a/setup.py b/setup.py
+index 57931bd..635ad2c 100644
+--- a/setup.py
++++ b/setup.py
+@@ -10,25 +10,28 @@ setup(
+     packages=["kge"],
+     install_requires=[
+         "numpy>=1.19.0",
+-        "torch>=1.7.1",
++        "torch>=2.0",
+         "pyyaml",
+         "pandas",
+-        "argparse",
+         "path",
+-        # please check correct behaviour when updating ax platform version!!
+-        "ax-platform>=0.1.19", "botorch>=0.4.0", "gpytorch>=1.4.2",
+-        # sqlalchemy version restricted until ax supports sqlachemy 2
+-        # see https://github.com/uma-pi1/kge/pull/269
+-        "sqlalchemy<2.0.0",
+-        "torchviz",
+         # LibKGE uses numba typed-dicts which is part of the experimental numba API
+         # see http://numba.pydata.org/numba-doc/0.50.1/reference/pysupported.html
+         "numba>=0.50.0",
+-        "hpbandster",
+-        "ConfigSpace",
+-        "pytest-shutil",
+-        "igraph",
+     ],
++    extras_require={
++        # hyperparameter search with Ax (search.type: ax) and GraSH (search.type: grash)
++        "search": [
++            # please check correct behaviour when updating ax platform version!!
++            "ax-platform>=0.1.19", "botorch>=0.4.0", "gpytorch>=1.4.2",
++            # sqlalchemy version restricted until ax supports sqlachemy 2
++            # see https://github.com/uma-pi1/kge/pull/269
++            "sqlalchemy<2.0.0",
++            "hpbandster",
++            "ConfigSpace",
++            "igraph",
++        ],
++        "test": ["pytest"],
++    },
+     python_requires=">=3.7",
+     zip_safe=False,
+     entry_points={"console_scripts": ["kge = kge.cli:main",],},
+diff --git a/tests/test_dataset.py b/tests/test_dataset.py
+index 7ad0230..bf8eda8 100644
+--- a/tests/test_dataset.py
++++ b/tests/test_dataset.py
+@@ -1,3 +1,4 @@
++import importlib.util
+ import unittest
+ import os
+ import torch
+@@ -6,6 +7,15 @@ from kge import Dataset
+ from kge.indexing import KvsAllIndex
+ 
+ 
++def available_index_keys(dataset):
++    """Index keys of `dataset`, without those whose optional dependencies are missing."""
++    keys = list(dataset.index_functions.keys())
++    # k-cores index is only used by GraSH search and requires igraph
++    if not importlib.util.find_spec("igraph"):
++        keys.remove("k-cores")
++    return keys
++
++
+ class TestDataset(unittest.TestCase):
+     def setUp(self) -> None:
+         self.dataset_name = "dataset_test"
+@@ -45,7 +55,7 @@ class TestDataset(unittest.TestCase):
+         dataset = Dataset.create(
+             config=self.config, folder=self.dataset_folder, preload_data=True
+         )
+-        for index_key in dataset.index_functions.keys():
++        for index_key in available_index_keys(dataset):
+             dataset.index(index_key)
+ 
+             # exclude indexes with disabled pickling
+@@ -85,7 +95,7 @@ class TestDataset(unittest.TestCase):
+                 config=self.config, folder=self.dataset_folder, preload_data=True
+             )
+             indexes = []
+-            for index_key in data.index_functions.keys():
++            for index_key in available_index_keys(data):
+                 index_object = data.index(index_key)
+ 
+                 # exclude indexes with disabled pickling

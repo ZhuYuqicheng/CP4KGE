@@ -15,7 +15,7 @@ results/              conformal prediction and tuning results
 scripts/              dataset download, hyperparameter tuning, conformal experiments
 tests/                tests of kgcp
 third_party/libkge/   LibKGE (upstream 9bca31f, with patches below)
-  data/<dataset>/     preprocessed datasets
+  data/<dataset>/     preprocessed datasets (downloaded, git-ignored)
 runs/                 training outputs (git-ignored)
 ```
 
@@ -135,7 +135,8 @@ protocol. It reaches test MRR 0.49 (MPS) and 0.50 (CPU) on Nations, in a single 
 
 ## Changes to LibKGE
 
-All changes are visible with `git -C third_party/libkge diff`.
+LibKGE is vendored without its git history. All changes against upstream 9bca31f are in
+[third_party/libkge.patch](third_party/libkge.patch).
 
 - **Devices**: new default `job.device: auto` (cuda > mps > cpu). Hits@k is accumulated
   on the CPU because MPS has no float64.
