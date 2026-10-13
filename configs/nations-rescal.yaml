@@ -1,0 +1,43 @@
+# rescal on nations, tuned with scripts/tune.py (see docs/hyperparameter_tuning.md).
+#   kge start configs/nations-rescal.yaml --random_seed.default 1
+job.type: train
+job.auto_correct: true
+dataset.name: nations
+import:
+- rescal
+- reciprocal_relations_model
+reciprocal_relations_model.base_model.type: rescal
+train.max_epochs: 400
+train.lr_scheduler: ReduceLROnPlateau
+train.lr_scheduler_args.mode: max
+train.lr_scheduler_args.factor: 0.95
+train.lr_scheduler_args.threshold: 0.0001
+valid.every: 5
+valid.metric: mean_reciprocal_rank_filtered
+valid.early_stopping.patience: 10
+valid.early_stopping.threshold.epochs: 50
+valid.early_stopping.threshold.metric_value: 0.2323
+entity_ranking.filter_with_test: false
+eval.batch_size: 256
+model: reciprocal_relations_model
+train.type: 1vsAll
+train.loss: bce
+train.batch_size: 128
+train.optimizer.default.type: Adagrad
+train.optimizer.default.args.lr: 0.2531603888373643
+train.lr_scheduler_args.patience: 7
+lookup_embedder.dim: 32
+lookup_embedder.initialize: uniform_
+lookup_embedder.initialize_args.normal_.mean: 0.0
+lookup_embedder.initialize_args.normal_.std: 0.12876921076144912
+lookup_embedder.initialize_args.uniform_.a: -0.6442226571387603
+lookup_embedder.initialize_args.uniform_.b: 0.6442226571387603
+lookup_embedder.initialize_args.xavier_normal_.gain: 1.0
+lookup_embedder.initialize_args.xavier_uniform_.gain: 1.0
+lookup_embedder.regularize: lp
+lookup_embedder.regularize_args.p: 1
+lookup_embedder.regularize_args.weighted: true
+rescal.entity_embedder.regularize_weight: 3.055933497126749e-14
+rescal.relation_embedder.regularize_weight: 2.568144479373687e-13
+rescal.entity_embedder.dropout: 0.49626561298679683
+rescal.relation_embedder.dropout: 0.0

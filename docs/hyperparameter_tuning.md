@@ -1,7 +1,8 @@
 # Hyperparameter tuning
 
 How the configurations in `configs/` were tuned, and what they achieve. Covered so
-far: **DistMult on Nations, UMLS and Kinship**. A search for TransE was started on
+far: **DistMult on Nations, UMLS and Kinship**, and **RESCAL on Nations** (on a cloud
+GPU, see [below](#rescal-on-nations)). A search for TransE was started on
 Kinship and paused to save time; its trials are kept in `runs/hpo/journal.log`, and
 running the same commands with `--models transe` resumes it.
 
@@ -16,15 +17,16 @@ before ranking.
 | Nations | DistMult | [nations-distmult.yaml](../configs/nations-distmult.yaml) | **0.806 ± 0.009** | 0.694 ± 0.016 | 0.904 ± 0.009 | 0.998 ± 0.002 |
 | UMLS | DistMult | [umls-distmult.yaml](../configs/umls-distmult.yaml) | **0.918 ± 0.010** | 0.862 ± 0.018 | 0.971 ± 0.005 | 0.997 ± 0.001 |
 | Kinship | DistMult | [kinship-distmult.yaml](../configs/kinship-distmult.yaml) | **0.725 ± 0.007** | 0.603 ± 0.011 | 0.811 ± 0.007 | 0.955 ± 0.002 |
+| Nations | RESCAL | [nations-rescal.yaml](../configs/nations-rescal.yaml) | **0.661 ± 0.007** | 0.468 ± 0.015 | 0.813 ± 0.016 | 0.986 ± 0.004 |
 
-All three selected configurations use reciprocal relations and 1vsAll training with
+All three selected DistMult configurations use reciprocal relations and 1vsAll training with
 cross-entropy. Nations and UMLS share most other settings (batch size 64, Adagrad,
 embedding size 256, uniform initialization, weighted L3 regularization, no dropout);
 Kinship prefers Adam, embedding size 64 and relation dropout. The 5 trained models per
 dataset are kept in `runs/hpo/final/<dataset>-distmult/top<rank>/seed{1..5}/`, as
 `checkpoint_best.pt`, where rank is the selected search rank (3 for Nations and UMLS,
 1 for Kinship). The full results are in [results/hpo/](../results/hpo/): one JSON per
-dataset, plus `trials.csv` with all 720 search trials.
+dataset and model, plus `trials.csv` with all 960 search trials.
 
 As a sanity check: Lin et al. (EMNLP 2018, Table 2) report DistMult at MRR 0.868 on
 UMLS and 0.614 on Kinship on the same splits, and ComplEx and ConvE at 0.87–0.88 on
@@ -118,6 +120,47 @@ took another 12 minutes.
   selected Kinship runs train longest, peaking at epochs 215–320, and still stop early
   before the 400-epoch limit.
 
+### RESCAL on Nations
+
+Tuned with the same protocol on one T4 GPU on Modal ([cloud/modal/](../cloud/modal/)),
+with 4 trials sharing the GPU. Best validation MRR per training type and loss in the
+Sobol stage, each the best of 30 trials:
+
+| Training + loss | Nations |
+|---|---|
+| NegSamp + CE | 0.594 |
+| NegSamp + BCE | 0.579 |
+| NegSamp + MR | 0.598 |
+| 1vsAll + CE | 0.588 |
+| 1vsAll + BCE | **0.605** |
+| KvsAll + CE | 0.570 |
+| KvsAll + BCE | 0.593 |
+| *Bayesian stage, 1vsAll + BCE* | 0.598 |
+
+Final stage, mean validation MRR (train + valid filtering) over 5 seeds: rank 1
+0.591 ± 0.013 (1vsAll + BCE, embedding size 32), rank 2 **0.597 ± 0.007** (1vsAll +
+BCE, size 32, selected), rank 3 0.588 ± 0.005 (NegSamp + MR, size 64). The selected
+configuration uses reciprocal relations, batch size 128, Adagrad with learning rate
+0.253, LR scheduler patience 7, uniform initialization in [−0.64, 0.64], weighted L1
+regularization with negligible weights and entity dropout 0.50. Its 5 models are in
+`runs/hpo/final/nations-rescal/top2/seed{1..5}/`.
+
+- **RESCAL is clearly weaker than DistMult on Nations** (test MRR 0.661 vs 0.806) and
+  prefers the smallest embeddings: all of the top 5 trials use size 32 or 64. With a
+  full matrix per relation, larger sizes give many parameters for 14 entities; the
+  selected configuration also uses strong entity dropout.
+- **Unlike for DistMult, BCE beats CE**, and the Bayesian stage did not improve on the
+  best Sobol trial. Seed-to-seed deviations (0.005–0.013) are again as large as the
+  gaps between the finalists.
+- **Compute.** The trial times of the 240 search trials add up to 6.0 hours (median
+  44 s; size-512 trials up to 7 minutes with 4 trials sharing the GPU), and the run took
+  about 2 hours of T4 time including restarts. 19 trials failed, by running out of GPU
+  memory before the memory limits described in [cloud/modal/](../cloud/modal/) were
+  added, or by being cut off by restarts, and were rerun with their sampled
+  parameters. One of them (1vsAll + BCE, size 512, below the top 5) finished only after
+  the Bayesian stage, which therefore started from 29 of the 30 Sobol trials of its
+  combination.
+
 ## Protocol
 
 We follow the protocol LibKGE's authors used to tune the models in LibKGE's model zoo
@@ -167,7 +210,7 @@ The search is run separately for every (dataset, model) pair, in three stages:
 ### Search space
 
 Every parameter is sampled in every trial; parameters that do not apply (e.g.
-`init_std` with Xavier initialization) are ignored. "M" is `transe` or `distmult`.
+`init_std` with Xavier initialization) are ignored. "M" is the model, e.g. `distmult`.
 
 | Hyperparameter | libkge option | Values | Original |
 |---|---|---|---|
