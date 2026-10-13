@@ -56,17 +56,19 @@ Scores: `Neg`, `MinMax`, `Softmax`, `APS`, `RAPS`, `Rank` (top-k). Groupings:
 `marginal` (default), `by_relation`, `by_direction`. Another KGE pipeline only needs to
 provide `[queries, entities]` logits: pass them to `nonconformity` instead of a model.
 
-At α = 0.1, the tuned DistMult models give the following answer sets, calibrated on
-random halves of the test queries (5 models × 100 splits; marginal calibration):
+At α = 0.1, the tuned models give the following mean set sizes with the Softmax score,
+calibrated on random halves of the test queries (5 seeds × 100 splits; marginal
+calibration). Coverage is 0.90 for every model:
 
-| Dataset | Entities | Coverage | Set size (Softmax) | Set size (APS) |
+| Dataset | Entities | DistMult | ComplEx | RESCAL |
 |---|---|---|---|---|
-| Nations | 14 | 0.90 | 3.33 | 3.74 |
-| UMLS | 135 | 0.90 | 2.95 | 5.81 |
-| Kinship | 104 | 0.90 | 5.17 | 6.36 |
+| Nations | 14 | 3.24 | 3.77 | 5.08 |
+| UMLS | 135 | 3.12 | 3.10 | 2.88 |
+| Kinship | 104 | 5.34 | 2.64 | 3.37 |
 
 See [docs/conformal_prediction.md](docs/conformal_prediction.md) for the method, the
-protocol and all results (per-relation coverage, other scores and α), reproduced with
+protocol and all results (per-relation coverage, other scores and α, set size against
+model accuracy), reproduced with
 
 ```bash
 uv run scripts/conformal.py --datasets nations umls kinship
