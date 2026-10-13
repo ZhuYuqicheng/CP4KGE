@@ -8,6 +8,8 @@ ICLR 2020 study (Ruffinelli et al., "You CAN Teach an Old Dog New Tricks!"):
     final   rerun the top-3 configurations with 5 seeds, select by mean validation
             MRR, evaluate the selected configuration on test
     report  export all trials to runs/hpo/results/trials.csv
+    time    train one model per embedding size for a few epochs and print its speed,
+            to estimate the cost of a search before running it
 
     python scripts/tune.py sobol --datasets nations umls kinship --models transe distmult
 
@@ -16,6 +18,7 @@ every stage resumable), the final runs, and the selected configs and results.
 """
 
 import argparse
+import gc
 import json
 import multiprocessing
 import shutil
@@ -58,6 +61,13 @@ TRIALS = {"sobol": 30, "refine": 30}
 REFINE_CHUNK = 10  # refine trials of one study run in parallel chunks of this size
 TOP_K, SEEDS = 3, (1, 2, 3, 4, 5)
 SEARCH_SEED = 0
+DIMS = [32, 64, 128, 256, 512]  # embedding sizes of the search space
+TIME_EPOCHS = 10  # epochs of a timed training (`time`)
+# libkge options that apply to every training, including the final runs, which otherwise
+# reuse a search trial's options: --device and --max-epochs from the command line, and
+# halving the sub-batch size when a batch does not fit into GPU memory (trials that share
+# a GPU can run out of memory; sub-batches give the same gradients)
+RUNTIME = {"job.device": "cpu", "train.subbatch_auto_tune": True}
 # validation metric for model selection; test triples are not used for filtering
 METRIC = "mean_reciprocal_rank_filtered"
 
@@ -77,7 +87,6 @@ def fixed_options(dataset: str, model: str) -> dict:
     random_mrr = sum(1 / k for k in range(1, n + 1)) / n  # uniformly random ranking
     return {
         "job.type": "train",
-        "job.device": "cpu",
         "job.auto_correct": True,  # as in the original configs, e.g. for label smoothing
         "console.quiet": True,
         "dataset.name": dataset,
@@ -121,7 +130,7 @@ def suggest(trial: optuna.Trial, dataset: str, model: str, train_type: str, loss
         "train.optimizer.default.type": c("optimizer", ["Adam", "Adagrad"]),
         "train.optimizer.default.args.lr": f("lr", 3e-4, 1.0, log=True),
         "train.lr_scheduler_args.patience": i("lr_patience", 0, 10),
-        "lookup_embedder.dim": c("dim", [32, 64, 128, 256, 512]),
+        "lookup_embedder.dim": c("dim", DIMS),
         "lookup_embedder.initialize": c(
             "initialize", ["xavier_normal_", "xavier_uniform_", "normal_", "uniform_"]
         ),
@@ -164,6 +173,9 @@ def suggest(trial: optuna.Trial, dataset: str, model: str, train_type: str, loss
 
 def train(options: dict, folder: Path) -> dict:
     """Trains a model; returns the validation trace entry of its best epoch."""
+    # libkge jobs contain reference cycles: free the worker's previous training, whose
+    # tensors would otherwise take up the worker's share of GPU memory
+    gc.collect()
     config = Config(folder=str(folder))
     config.load_options(options)
     config.init_folder()
@@ -171,6 +183,10 @@ def train(options: dict, folder: Path) -> dict:
     job = Job.create(config, Dataset.create(config))
     job.run()
     return max(job.valid_trace, key=lambda entry: entry[METRIC])
+
+
+def read_trace(folder: Path) -> list[dict]:
+    return [yaml.safe_load(line) for line in (folder / "trace.yaml").read_text().splitlines()]
 
 
 def evaluate(folder: Path, split: str = "test") -> dict:
@@ -205,7 +221,8 @@ def by_cost(datasets, models):
 
 
 def objective(trial, dataset, model, train_type, loss, phase) -> float:
-    options = fixed_options(dataset, model) | suggest(trial, dataset, model, train_type, loss)
+    sampled = suggest(trial, dataset, model, train_type, loss)
+    options = fixed_options(dataset, model) | sampled | RUNTIME
     trial.set_user_attr("phase", phase)
     trial.set_user_attr("options", options)
     start = time.time()
@@ -297,18 +314,23 @@ def final_run(task) -> tuple:
     folder = RUNS / "final" / f"{dataset}-{model}" / f"top{rank}" / f"seed{seed}"
     if not (folder / ".done").exists():
         shutil.rmtree(folder, ignore_errors=True)  # incomplete run from an interruption
-        train(options | {"random_seed.default": seed}, folder)
+        train(options | RUNTIME | {"random_seed.default": seed}, folder)
         (folder / ".done").touch()
-    trace = [yaml.safe_load(line) for line in (folder / "trace.yaml").read_text().splitlines()]
+    trace = read_trace(folder)
     valid = [e for e in trace if e.get("event") == "eval_completed" and e["split"] == "valid"]
     count_finished()
     return task, max(valid, key=lambda entry: entry[METRIC]), folder
 
 
-def init_worker(runs: Path, trials: dict, finished):
-    global RUNS, TRIALS, FINISHED
-    RUNS, TRIALS, FINISHED = runs, trials, finished
+def init_worker(runs: Path, trials: dict, runtime: dict, finished, workers: int):
+    global RUNS, TRIALS, RUNTIME, FINISHED
+    RUNS, TRIALS, RUNTIME, FINISHED = runs, trials, runtime, finished
     torch.set_num_threads(1)  # tiny models: one thread per worker is fastest
+    if runtime["job.device"].startswith("cuda"):
+        # Workers that share a GPU get equal parts of its memory (leaving room for their
+        # CUDA contexts); otherwise memory that one worker keeps cached makes the others
+        # run out. A training that needs more splits its batches (train.subbatch_auto_tune).
+        torch.cuda.set_per_process_memory_fraction(0.85 / workers)
     optuna.logging.set_verbosity(optuna.logging.ERROR)
     warnings.filterwarnings("ignore", category=optuna.exceptions.ExperimentalWarning)
 
@@ -326,7 +348,7 @@ def run_parallel(fn, tasks, workers, total, unit="trial"):
     finished. Print with `tqdm.write` while it is shown.
     """
     finished = multiprocessing.Value("i", 0)
-    initargs = (RUNS, TRIALS, finished)
+    initargs = (RUNS, TRIALS, RUNTIME, finished, workers)
     with (
         ProcessPoolExecutor(workers, initializer=init_worker, initargs=initargs) as pool,
         tqdm(total=total, unit=unit, smoothing=0) as bar,
@@ -414,7 +436,13 @@ def cmd_final(args):
 
 def write_config(dataset, model, options):
     """Writes the selected configuration as a plain libkge config file."""
-    runtime = {"job.device", "console.quiet", "dataset.pickle", "random_seed.default"}
+    runtime = {
+        "job.device",
+        "train.subbatch_auto_tune",
+        "console.quiet",
+        "dataset.pickle",
+        "random_seed.default",
+    }
     runtime |= {k for k in options if k.startswith("train.checkpoint")}
     config = {k: v for k, v in options.items() if k not in runtime}
     header = (
@@ -450,16 +478,55 @@ def cmd_report(args):
     print(f"wrote {len(rows)} trials to {RUNS / 'results' / 'trials.csv'}")
 
 
+def cmd_time(args):
+    """Trains one model per embedding size for a few epochs and prints its speed.
+
+    Uses 1vsAll training with the smallest batch size of the search space, which takes
+    the most optimizer steps per epoch. The models train one at a time; trials that share
+    a device in parallel are slower.
+    """
+    torch.set_num_threads(1)  # as in a worker
+    for d, m in by_cost(args.datasets, args.models):
+        for dim in DIMS:
+            options = fixed_options(d, m) | RUNTIME | {
+                "model": "reciprocal_relations_model",
+                "train.type": "1vsAll",
+                "train.loss": "kl",
+                "train.batch_size": 64,
+                "train.optimizer.default.type": "Adam",
+                "train.optimizer.default.args.lr": 1e-3,
+                "lookup_embedder.dim": dim,
+                "train.max_epochs": TIME_EPOCHS,
+            }
+            with tempfile.TemporaryDirectory() as tmp:
+                train(options, Path(tmp) / "run")
+                trace = read_trace(Path(tmp) / "run")
+            epoch = statistics.median(
+                e["epoch_time"] for e in trace if e.get("event") == "epoch_completed"
+            )
+            valid = [e["epoch_time"] for e in trace if e.get("event") == "eval_completed"][-1]
+            minutes = (100 * epoch + 100 / options["valid.every"] * valid) / 60
+            print(
+                f"{d}-{m} dim {dim}: {epoch:.2f} s/epoch, {valid:.2f} s/validation, "
+                f"{minutes:.1f} min per 100 epochs (trainings run up to 400)"
+            )
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("command", choices=["sobol", "refine", "final", "report"])
+    parser.add_argument("command", choices=["sobol", "refine", "final", "report", "time"])
     parser.add_argument("--datasets", nargs="+", default=["nations", "umls", "kinship"])
     parser.add_argument("--models", nargs="+", default=["transe", "distmult"])
     parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument("--device", default="cpu", help="where models train: cpu, cuda, mps")
     parser.add_argument("--dir", type=Path, default=RUNS, help="where trials are stored")
     parser.add_argument("--trials", type=int, help="trials per stage (default: 30)")
+    parser.add_argument("--max-epochs", type=int, help="epochs per training (default: 400)")
     args = parser.parse_args()
     RUNS = args.dir
+    RUNTIME["job.device"] = args.device
+    if args.max_epochs:
+        RUNTIME["train.max_epochs"] = args.max_epochs
     TRIALS = {stage: args.trials or n for stage, n in TRIALS.items()}
     RUNS.mkdir(parents=True, exist_ok=True)
     globals()[f"cmd_{args.command}"](args)

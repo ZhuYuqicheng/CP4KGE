@@ -9,6 +9,7 @@ patched for recent PyTorch and Apple Silicon; other pipelines can plug in their 
 
 ```
 src/kgcp/             conformal prediction library
+cloud/                hyperparameter tuning on cloud GPUs (Modal)
 configs/              training configurations (tuned ones: see docs/)
 docs/                 conformal prediction and hyperparameter tuning: protocols, results
 results/              conformal prediction and tuning results
@@ -110,6 +111,9 @@ results.
 ```bash
 uv run scripts/tune.py sobol --datasets nations umls kinship --models distmult
 ```
+
+`--device` (default `cpu`) runs the trials on `cuda` or `mps` instead. To tune on
+cloud GPUs, see [cloud/](cloud/).
 
 ### Devices
 
