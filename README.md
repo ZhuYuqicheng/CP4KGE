@@ -126,13 +126,20 @@ For tiny datasets such as Nations, the CPU is about as fast as the GPU.
 ## KGE results
 
 Filtered test metrics of the tuned configurations, mean ± std over 5 seeds (see
-[docs/hyperparameter_tuning.md](docs/hyperparameter_tuning.md)):
+[docs/hyperparameter_tuning.md](docs/hyperparameter_tuning.md)). DistMult and ComplEx
+were tuned on the Mac GPU (`--device mps`), RESCAL on a Modal T4 GPU:
 
 | Dataset | Model | Config | MRR | Hits@1 | Hits@10 |
 |---|---|---|---|---|---|
-| Nations | DistMult | `configs/nations-distmult.yaml` | 0.806 ± 0.009 | 0.694 ± 0.016 | 0.998 ± 0.002 |
-| UMLS | DistMult | `configs/umls-distmult.yaml` | 0.918 ± 0.010 | 0.862 ± 0.018 | 0.997 ± 0.001 |
-| Kinship | DistMult | `configs/kinship-distmult.yaml` | 0.725 ± 0.007 | 0.603 ± 0.011 | 0.955 ± 0.002 |
+| Nations | DistMult | `configs/nations-distmult.yaml` | 0.813 ± 0.013 | 0.706 ± 0.018 | 0.997 ± 0.003 |
+| UMLS | DistMult | `configs/umls-distmult.yaml` | 0.896 ± 0.016 | 0.825 ± 0.024 | 0.992 ± 0.004 |
+| Kinship | DistMult | `configs/kinship-distmult.yaml` | 0.704 ± 0.007 | 0.572 ± 0.011 | 0.949 ± 0.002 |
+| Nations | ComplEx | `configs/nations-complex.yaml` | 0.780 ± 0.006 | 0.667 ± 0.013 | 0.994 ± 0.002 |
+| UMLS | ComplEx | `configs/umls-complex.yaml` | 0.925 ± 0.014 | 0.875 ± 0.027 | 0.992 ± 0.001 |
+| Kinship | ComplEx | `configs/kinship-complex.yaml` | 0.882 ± 0.006 | 0.816 ± 0.010 | 0.986 ± 0.001 |
+| Nations | RESCAL | `configs/nations-rescal.yaml` | 0.661 ± 0.007 | 0.468 ± 0.015 | 0.986 ± 0.004 |
+| UMLS | RESCAL | `configs/umls-rescal.yaml` | 0.898 ± 0.006 | 0.807 ± 0.012 | 0.997 ± 0.001 |
+| Kinship | RESCAL | `configs/kinship-rescal.yaml` | 0.847 ± 0.002 | 0.766 ± 0.003 | 0.977 ± 0.003 |
 
 `configs/nations-transe.yaml` comes from an earlier, small manual sweep, not from this
 protocol. It reaches test MRR 0.49 (MPS) and 0.50 (CPU) on Nations, in a single run.

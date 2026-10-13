@@ -1,19 +1,18 @@
 {
   "dataset": "nations",
   "model": "distmult",
-  "selected": 3,
+  "selected": 1,
   "candidates": {
     "1": {
       "valid_mrr": [
-        0.7509798596252748,
-        0.7639469165897849,
-        0.7482193223196059,
-        0.7460516541447472,
-        0.7401432823296168
+        0.7496660702192603,
+        0.7599844621054491,
+        0.7565148128336997,
+        0.7524307481008559,
+        0.7598499700651696
       ],
       "options": {
         "job.type": "train",
-        "job.device": "cpu",
         "job.auto_correct": true,
         "console.quiet": true,
         "dataset.name": "nations",
@@ -43,36 +42,37 @@
         "train.loss": "kl",
         "train.batch_size": 64,
         "train.optimizer.default.type": "Adagrad",
-        "train.optimizer.default.args.lr": 0.09596577372630148,
-        "train.lr_scheduler_args.patience": 1,
+        "train.optimizer.default.args.lr": 0.15756803501067648,
+        "train.lr_scheduler_args.patience": 3,
         "lookup_embedder.dim": 256,
-        "lookup_embedder.initialize": "normal_",
+        "lookup_embedder.initialize": "uniform_",
         "lookup_embedder.initialize_args.normal_.mean": 0.0,
-        "lookup_embedder.initialize_args.normal_.std": 0.1507783341616505,
-        "lookup_embedder.initialize_args.uniform_.a": -0.5152571789778896,
-        "lookup_embedder.initialize_args.uniform_.b": 0.5152571789778896,
+        "lookup_embedder.initialize_args.normal_.std": 0.0021651578967916696,
+        "lookup_embedder.initialize_args.uniform_.a": -0.514738239215659,
+        "lookup_embedder.initialize_args.uniform_.b": 0.514738239215659,
         "lookup_embedder.initialize_args.xavier_normal_.gain": 1.0,
         "lookup_embedder.initialize_args.xavier_uniform_.gain": 1.0,
         "lookup_embedder.regularize": "lp",
         "lookup_embedder.regularize_args.p": 3,
         "lookup_embedder.regularize_args.weighted": true,
-        "distmult.entity_embedder.regularize_weight": 0.0027957410260927708,
-        "distmult.relation_embedder.regularize_weight": 1.954529090957341e-05,
+        "distmult.entity_embedder.regularize_weight": 0.0001255987458328977,
+        "distmult.relation_embedder.regularize_weight": 4.779632060782556e-13,
         "distmult.entity_embedder.dropout": 0.0,
-        "distmult.relation_embedder.dropout": 0.0
+        "distmult.relation_embedder.dropout": 0.0,
+        "job.device": "mps",
+        "train.subbatch_auto_tune": true
       }
     },
     "2": {
       "valid_mrr": [
-        0.7571339822893766,
-        0.7553561416702654,
-        0.7577023913512877,
-        0.7451832066828282,
-        0.7531048185262249
+        0.7473368429059359,
+        0.7592526536491049,
+        0.7571806787845478,
+        0.7480697248449277,
+        0.7603663152186715
       ],
       "options": {
         "job.type": "train",
-        "job.device": "cpu",
         "job.auto_correct": true,
         "console.quiet": true,
         "dataset.name": "nations",
@@ -102,36 +102,37 @@
         "train.loss": "kl",
         "train.batch_size": 64,
         "train.optimizer.default.type": "Adagrad",
-        "train.optimizer.default.args.lr": 0.1144500486150848,
-        "train.lr_scheduler_args.patience": 2,
+        "train.optimizer.default.args.lr": 0.10890575324631287,
+        "train.lr_scheduler_args.patience": 5,
         "lookup_embedder.dim": 256,
         "lookup_embedder.initialize": "uniform_",
         "lookup_embedder.initialize_args.normal_.mean": 0.0,
-        "lookup_embedder.initialize_args.normal_.std": 0.07650670735566324,
-        "lookup_embedder.initialize_args.uniform_.a": -0.4725175863722393,
-        "lookup_embedder.initialize_args.uniform_.b": 0.4725175863722393,
+        "lookup_embedder.initialize_args.normal_.std": 0.008963958555658288,
+        "lookup_embedder.initialize_args.uniform_.a": -0.2668510600404592,
+        "lookup_embedder.initialize_args.uniform_.b": 0.2668510600404592,
         "lookup_embedder.initialize_args.xavier_normal_.gain": 1.0,
         "lookup_embedder.initialize_args.xavier_uniform_.gain": 1.0,
         "lookup_embedder.regularize": "lp",
         "lookup_embedder.regularize_args.p": 3,
         "lookup_embedder.regularize_args.weighted": true,
-        "distmult.entity_embedder.regularize_weight": 0.00748971045798136,
-        "distmult.relation_embedder.regularize_weight": 6.083406126423295e-07,
+        "distmult.entity_embedder.regularize_weight": 0.0011210471038729988,
+        "distmult.relation_embedder.regularize_weight": 2.0464851081811366e-08,
         "distmult.entity_embedder.dropout": 0.0,
-        "distmult.relation_embedder.dropout": 0.0
+        "distmult.relation_embedder.dropout": 0.0,
+        "job.device": "mps",
+        "train.subbatch_auto_tune": true
       }
     },
     "3": {
       "valid_mrr": [
-        0.759252576971773,
-        0.7570711835544912,
-        0.7620752229163396,
-        0.7464964593475188,
-        0.7594571520934752
+        0.7464776734011856,
+        0.7546721031917399,
+        0.7505852013976131,
+        0.746241047154719,
+        0.7492183512778737
       ],
       "options": {
         "job.type": "train",
-        "job.device": "cpu",
         "job.auto_correct": true,
         "console.quiet": true,
         "dataset.name": "nations",
@@ -161,61 +162,63 @@
         "train.loss": "kl",
         "train.batch_size": 64,
         "train.optimizer.default.type": "Adagrad",
-        "train.optimizer.default.args.lr": 0.12382765286264716,
-        "train.lr_scheduler_args.patience": 2,
+        "train.optimizer.default.args.lr": 0.158181466151756,
+        "train.lr_scheduler_args.patience": 4,
         "lookup_embedder.dim": 256,
         "lookup_embedder.initialize": "uniform_",
         "lookup_embedder.initialize_args.normal_.mean": 0.0,
-        "lookup_embedder.initialize_args.normal_.std": 0.02709632648482763,
-        "lookup_embedder.initialize_args.uniform_.a": -0.5026631109815772,
-        "lookup_embedder.initialize_args.uniform_.b": 0.5026631109815772,
+        "lookup_embedder.initialize_args.normal_.std": 0.002749630772474697,
+        "lookup_embedder.initialize_args.uniform_.a": -0.7571812633686684,
+        "lookup_embedder.initialize_args.uniform_.b": 0.7571812633686684,
         "lookup_embedder.initialize_args.xavier_normal_.gain": 1.0,
         "lookup_embedder.initialize_args.xavier_uniform_.gain": 1.0,
         "lookup_embedder.regularize": "lp",
         "lookup_embedder.regularize_args.p": 3,
         "lookup_embedder.regularize_args.weighted": true,
-        "distmult.entity_embedder.regularize_weight": 0.0002805012788455278,
-        "distmult.relation_embedder.regularize_weight": 8.863540021588229e-08,
+        "distmult.entity_embedder.regularize_weight": 0.0003776491281019152,
+        "distmult.relation_embedder.regularize_weight": 5.391682439879026e-12,
         "distmult.entity_embedder.dropout": 0.0,
-        "distmult.relation_embedder.dropout": 0.0
+        "distmult.relation_embedder.dropout": 0.0,
+        "job.device": "mps",
+        "train.subbatch_auto_tune": true
       }
     }
   },
   "test": {
     "1": {
-      "mean_rank_filtered": 1.756218905472637,
-      "mean_reciprocal_rank_filtered": 0.8037542086928638,
-      "hits_at_1_filtered": 0.6940298507462687,
-      "hits_at_3_filtered": 0.8930348258706468,
-      "hits_at_10_filtered": 0.9950248756218906
+      "mean_rank_filtered": 1.7611940298507462,
+      "mean_reciprocal_rank_filtered": 0.7988824796913868,
+      "hits_at_1_filtered": 0.6840796019900498,
+      "hits_at_3_filtered": 0.8980099502487562,
+      "hits_at_10_filtered": 0.9975124378109452
     },
     "2": {
-      "mean_rank_filtered": 1.6965174129353233,
-      "mean_reciprocal_rank_filtered": 0.8184819767131141,
-      "hits_at_1_filtered": 0.7139303482587065,
-      "hits_at_3_filtered": 0.9154228855721394,
+      "mean_rank_filtered": 1.743781094527363,
+      "mean_reciprocal_rank_filtered": 0.8094389047195663,
+      "hits_at_1_filtered": 0.7064676616915423,
+      "hits_at_3_filtered": 0.8830845771144279,
       "hits_at_10_filtered": 1.0
     },
     "3": {
-      "mean_rank_filtered": 1.7189054726368158,
-      "mean_reciprocal_rank_filtered": 0.8005883515770755,
-      "hits_at_1_filtered": 0.681592039800995,
-      "hits_at_3_filtered": 0.9079601990049752,
-      "hits_at_10_filtered": 1.0
+      "mean_rank_filtered": 1.763681592039801,
+      "mean_reciprocal_rank_filtered": 0.8013021744305815,
+      "hits_at_1_filtered": 0.6915422885572139,
+      "hits_at_3_filtered": 0.8830845771144279,
+      "hits_at_10_filtered": 0.9975124378109452
     },
     "4": {
-      "mean_rank_filtered": 1.7736318407960199,
-      "mean_reciprocal_rank_filtered": 0.7965796930872979,
-      "hits_at_1_filtered": 0.6741293532338308,
-      "hits_at_3_filtered": 0.9054726368159204,
-      "hits_at_10_filtered": 0.9950248756218906
+      "mean_rank_filtered": 1.671641791044776,
+      "mean_reciprocal_rank_filtered": 0.8265802184147621,
+      "hits_at_1_filtered": 0.7263681592039801,
+      "hits_at_3_filtered": 0.9154228855721394,
+      "hits_at_10_filtered": 0.9975124378109452
     },
     "5": {
-      "mean_rank_filtered": 1.7661691542288558,
-      "mean_reciprocal_rank_filtered": 0.8105160537643812,
-      "hits_at_1_filtered": 0.7039800995024875,
-      "hits_at_3_filtered": 0.8980099502487562,
-      "hits_at_10_filtered": 0.9975124378109452
+      "mean_rank_filtered": 1.671641791044776,
+      "mean_reciprocal_rank_filtered": 0.8264085760164024,
+      "hits_at_1_filtered": 0.7213930348258707,
+      "hits_at_3_filtered": 0.9129353233830846,
+      "hits_at_10_filtered": 0.9925373134328358
     }
   }
 }
