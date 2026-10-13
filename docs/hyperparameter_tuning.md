@@ -229,13 +229,15 @@ done
 The stages are `sobol` (stage 1), `refine` (stage 2), `final` (stage 3: reruns,
 selection and test evaluation) and `report` (all trials as CSV). A progress bar shows
 the finished trials (final runs in stage 3) and the estimated remaining time. `--workers`
-sets the number of parallel processes (default 8). `--dir` and `--trials` allow a quick debug
+sets the number of parallel processes (default 8), `--device` where they train (default
+`cpu`; e.g. `cuda`, `mps`). `--dir` and `--trials` allow a quick debug
 run in a separate directory, e.g. `--dir /tmp/hpo-debug --trials 2`.
 
 Everything is written to `runs/hpo/`: `journal.log` (all trials; every stage resumes
 where it stopped), `final/` (the 5-seed models of the top-3 configurations),
 `results/` and `configs/`. The selected configurations and results are copied into
-`configs/` and `results/hpo/` of this repository.
+`configs/` and `results/hpo/` of this repository. [cloud/modal/](../cloud/modal/) runs
+the same stages on Modal GPUs, one container per (dataset, model) pair.
 
 Train a selected configuration directly with libkge:
 
