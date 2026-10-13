@@ -1,0 +1,45 @@
+# rescal on kinship, tuned with cloud/modal/tune_rescal.py (scripts/tune.py with
+# embedding sizes 32-128; see docs/hyperparameter_tuning.md).
+#   kge start configs/kinship-rescal.yaml --random_seed.default 1
+job.type: train
+job.auto_correct: true
+dataset.name: kinship
+import:
+- rescal
+- reciprocal_relations_model
+reciprocal_relations_model.base_model.type: rescal
+train.max_epochs: 400
+train.lr_scheduler: ReduceLROnPlateau
+train.lr_scheduler_args.mode: max
+train.lr_scheduler_args.factor: 0.95
+train.lr_scheduler_args.threshold: 0.0001
+valid.every: 5
+valid.metric: mean_reciprocal_rank_filtered
+valid.early_stopping.patience: 10
+valid.early_stopping.threshold.epochs: 50
+valid.early_stopping.threshold.metric_value: 0.0503
+entity_ranking.filter_with_test: false
+eval.batch_size: 256
+model: rescal
+train.type: KvsAll
+train.loss: kl
+train.batch_size: 256
+train.optimizer.default.type: Adagrad
+train.optimizer.default.args.lr: 0.041211160594816464
+train.lr_scheduler_args.patience: 5
+lookup_embedder.dim: 128
+lookup_embedder.initialize: uniform_
+lookup_embedder.initialize_args.normal_.mean: 0.0
+lookup_embedder.initialize_args.normal_.std: 0.07057071130621739
+lookup_embedder.initialize_args.uniform_.a: -0.5698029280193895
+lookup_embedder.initialize_args.uniform_.b: 0.5698029280193895
+lookup_embedder.initialize_args.xavier_normal_.gain: 1.0
+lookup_embedder.initialize_args.xavier_uniform_.gain: 1.0
+lookup_embedder.regularize: lp
+lookup_embedder.regularize_args.p: 2
+lookup_embedder.regularize_args.weighted: true
+rescal.entity_embedder.regularize_weight: 3.0502701253536944e-07
+rescal.relation_embedder.regularize_weight: 0.013198953348528202
+rescal.entity_embedder.dropout: 0.49593469966202974
+rescal.relation_embedder.dropout: 0.0
+KvsAll.label_smoothing: 0.2860518867149949

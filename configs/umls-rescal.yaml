@@ -1,0 +1,44 @@
+# rescal on umls, tuned with cloud/modal/tune_rescal.py (scripts/tune.py with
+# embedding sizes 32-128; see docs/hyperparameter_tuning.md).
+#   kge start configs/umls-rescal.yaml --random_seed.default 1
+job.type: train
+job.auto_correct: true
+dataset.name: umls
+import:
+- rescal
+- reciprocal_relations_model
+reciprocal_relations_model.base_model.type: rescal
+train.max_epochs: 400
+train.lr_scheduler: ReduceLROnPlateau
+train.lr_scheduler_args.mode: max
+train.lr_scheduler_args.factor: 0.95
+train.lr_scheduler_args.threshold: 0.0001
+valid.every: 5
+valid.metric: mean_reciprocal_rank_filtered
+valid.early_stopping.patience: 10
+valid.early_stopping.threshold.epochs: 50
+valid.early_stopping.threshold.metric_value: 0.0406
+entity_ranking.filter_with_test: false
+eval.batch_size: 256
+model: rescal
+train.type: 1vsAll
+train.loss: kl
+train.batch_size: 256
+train.optimizer.default.type: Adagrad
+train.optimizer.default.args.lr: 0.034652578438452084
+train.lr_scheduler_args.patience: 7
+lookup_embedder.dim: 128
+lookup_embedder.initialize: normal_
+lookup_embedder.initialize_args.normal_.mean: 0.0
+lookup_embedder.initialize_args.normal_.std: 0.08760744118816817
+lookup_embedder.initialize_args.uniform_.a: -0.7566882703136001
+lookup_embedder.initialize_args.uniform_.b: 0.7566882703136001
+lookup_embedder.initialize_args.xavier_normal_.gain: 1.0
+lookup_embedder.initialize_args.xavier_uniform_.gain: 1.0
+lookup_embedder.regularize: lp
+lookup_embedder.regularize_args.p: 2
+lookup_embedder.regularize_args.weighted: true
+rescal.entity_embedder.regularize_weight: 1.2849165600163927e-08
+rescal.relation_embedder.regularize_weight: 0.01052728501940424
+rescal.entity_embedder.dropout: 0.4276081258431077
+rescal.relation_embedder.dropout: 0.0

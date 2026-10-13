@@ -56,20 +56,23 @@ def main(
     max_epochs: int = 0,
     gpu: str = "T4",
     workers: int = 4,
+    script: str = "scripts/tune.py",
 ):
     """Tunes every pair of the comma-separated `datasets` and `models` in parallel.
 
     Run folders are stored on the volume as <run>/<dataset>-<model>. `trials` and
     `max_epochs` override the trials per search stage and the epochs per training (for
-    tests); `workers` is the number of trials that run in parallel on a pair's GPU.
+    tests); `workers` is the number of trials that run in parallel on a pair's GPU;
+    `script` is the tuning script, scripts/tune.py or a variant such as
+    cloud/modal/tune_rescal.py.
     """
     args = ["--device", "cuda", "--workers", str(workers)]
     args += ["--trials", str(trials)] if trials else []
     args += ["--max-epochs", str(max_epochs)] if max_epochs else []
-    setup = f"{git_version()}, {gpu} GPU, {' '.join(args)}"
+    setup = f"{git_version()}, {gpu} GPU, {script} {' '.join(args)}"
     tune_on = tune.with_options(gpu=gpu, cpu=workers, memory=2048 * workers)
     calls = {
-        (dataset, model): tune_on.spawn(dataset, model, run, stages.split(","), args, setup)
+        (dataset, model): tune_on.spawn(dataset, model, run, stages.split(","), script, args, setup)
         for dataset in datasets.split(",")
         for model in models.split(",")
     }
@@ -81,10 +84,10 @@ def main(
 
 
 @app.function(volumes={VOLUME: volume}, gpu="T4", timeout=24 * 3600)
-def tune(dataset, model, run, stages, args, setup) -> list[str]:
+def tune(dataset, model, run, stages, script, args, setup) -> list[str]:
     """Runs tuning stages for one pair; returns the last line that each stage printed.
 
-    `args` are passed on to scripts/tune.py; `setup` is recorded in history.txt.
+    `args` are passed on to the tuning `script`; `setup` is recorded in history.txt.
     """
     pair = f"{dataset}-{model}"
     work, saved = WORK / run / pair, VOLUME / run / pair
@@ -98,7 +101,7 @@ def tune(dataset, model, run, stages, args, setup) -> list[str]:
     summary = []
     try:
         for stage in stages:
-            command = ["python", "scripts/tune.py", stage, "--datasets", dataset]
+            command = ["python", script, stage, "--datasets", dataset]
             command += ["--models", model, "--dir", str(work), *args]
             summary.append(f"{pair} {stage}: {tee(command, work / 'log.txt', f'[{pair}]')}")
     finally:

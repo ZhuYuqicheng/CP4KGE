@@ -1,0 +1,44 @@
+# complex on umls, tuned with scripts/tune.py (see docs/hyperparameter_tuning.md).
+#   kge start configs/umls-complex.yaml --random_seed.default 1
+job.type: train
+job.auto_correct: true
+dataset.name: umls
+import:
+- complex
+- reciprocal_relations_model
+reciprocal_relations_model.base_model.type: complex
+train.max_epochs: 400
+train.lr_scheduler: ReduceLROnPlateau
+train.lr_scheduler_args.mode: max
+train.lr_scheduler_args.factor: 0.95
+train.lr_scheduler_args.threshold: 0.0001
+valid.every: 5
+valid.metric: mean_reciprocal_rank_filtered
+valid.early_stopping.patience: 10
+valid.early_stopping.threshold.epochs: 50
+valid.early_stopping.threshold.metric_value: 0.0406
+entity_ranking.filter_with_test: false
+eval.batch_size: 256
+model: complex
+train.type: KvsAll
+train.loss: kl
+train.batch_size: 256
+train.optimizer.default.type: Adam
+train.optimizer.default.args.lr: 0.004687589007688535
+train.lr_scheduler_args.patience: 10
+lookup_embedder.dim: 256
+lookup_embedder.initialize: xavier_uniform_
+lookup_embedder.initialize_args.normal_.mean: 0.0
+lookup_embedder.initialize_args.normal_.std: 0.23247309557041645
+lookup_embedder.initialize_args.uniform_.a: -0.06319849828335489
+lookup_embedder.initialize_args.uniform_.b: 0.06319849828335489
+lookup_embedder.initialize_args.xavier_normal_.gain: 1.0
+lookup_embedder.initialize_args.xavier_uniform_.gain: 1.0
+lookup_embedder.regularize: ''
+lookup_embedder.regularize_args.p: 2
+lookup_embedder.regularize_args.weighted: true
+complex.entity_embedder.regularize_weight: 3.861615215996616e-06
+complex.relation_embedder.regularize_weight: 6.315917915820395e-20
+complex.entity_embedder.dropout: 0.0
+complex.relation_embedder.dropout: 0.3325576806416053
+KvsAll.label_smoothing: 0.2974490229104693

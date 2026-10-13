@@ -56,17 +56,19 @@ Scores: `Neg`, `MinMax`, `Softmax`, `APS`, `RAPS`, `Rank` (top-k). Groupings:
 `marginal` (default), `by_relation`, `by_direction`. Another KGE pipeline only needs to
 provide `[queries, entities]` logits: pass them to `nonconformity` instead of a model.
 
-At α = 0.1, the tuned DistMult models give the following answer sets, calibrated on
-random halves of the test queries (5 models × 100 splits; marginal calibration):
+At α = 0.1, the tuned models give the following mean set sizes with the Softmax score,
+calibrated on random halves of the test queries (5 seeds × 100 splits; marginal
+calibration). Coverage is 0.90 for every model:
 
-| Dataset | Entities | Coverage | Set size (Softmax) | Set size (APS) |
+| Dataset | Entities | DistMult | ComplEx | RESCAL |
 |---|---|---|---|---|
-| Nations | 14 | 0.90 | 3.33 | 3.74 |
-| UMLS | 135 | 0.90 | 2.95 | 5.81 |
-| Kinship | 104 | 0.90 | 5.17 | 6.36 |
+| Nations | 14 | 3.24 | 3.77 | 5.08 |
+| UMLS | 135 | 3.12 | 3.10 | 2.88 |
+| Kinship | 104 | 5.34 | 2.64 | 3.37 |
 
 See [docs/conformal_prediction.md](docs/conformal_prediction.md) for the method, the
-protocol and all results (per-relation coverage, other scores and α), reproduced with
+protocol and all results (per-relation coverage, other scores and α, set size against
+model accuracy), reproduced with
 
 ```bash
 uv run scripts/conformal.py --datasets nations umls kinship
@@ -126,13 +128,20 @@ For tiny datasets such as Nations, the CPU is about as fast as the GPU.
 ## KGE results
 
 Filtered test metrics of the tuned configurations, mean ± std over 5 seeds (see
-[docs/hyperparameter_tuning.md](docs/hyperparameter_tuning.md)):
+[docs/hyperparameter_tuning.md](docs/hyperparameter_tuning.md)). DistMult and ComplEx
+were tuned on the Mac GPU (`--device mps`), RESCAL on a Modal T4 GPU:
 
 | Dataset | Model | Config | MRR | Hits@1 | Hits@10 |
 |---|---|---|---|---|---|
-| Nations | DistMult | `configs/nations-distmult.yaml` | 0.806 ± 0.009 | 0.694 ± 0.016 | 0.998 ± 0.002 |
-| UMLS | DistMult | `configs/umls-distmult.yaml` | 0.918 ± 0.010 | 0.862 ± 0.018 | 0.997 ± 0.001 |
-| Kinship | DistMult | `configs/kinship-distmult.yaml` | 0.725 ± 0.007 | 0.603 ± 0.011 | 0.955 ± 0.002 |
+| Nations | DistMult | `configs/nations-distmult.yaml` | 0.813 ± 0.013 | 0.706 ± 0.018 | 0.997 ± 0.003 |
+| UMLS | DistMult | `configs/umls-distmult.yaml` | 0.896 ± 0.016 | 0.825 ± 0.024 | 0.992 ± 0.004 |
+| Kinship | DistMult | `configs/kinship-distmult.yaml` | 0.704 ± 0.007 | 0.572 ± 0.011 | 0.949 ± 0.002 |
+| Nations | ComplEx | `configs/nations-complex.yaml` | 0.780 ± 0.006 | 0.667 ± 0.013 | 0.994 ± 0.002 |
+| UMLS | ComplEx | `configs/umls-complex.yaml` | 0.925 ± 0.014 | 0.875 ± 0.027 | 0.992 ± 0.001 |
+| Kinship | ComplEx | `configs/kinship-complex.yaml` | 0.882 ± 0.006 | 0.816 ± 0.010 | 0.986 ± 0.001 |
+| Nations | RESCAL | `configs/nations-rescal.yaml` | 0.661 ± 0.007 | 0.468 ± 0.015 | 0.986 ± 0.004 |
+| UMLS | RESCAL | `configs/umls-rescal.yaml` | 0.898 ± 0.006 | 0.807 ± 0.012 | 0.997 ± 0.001 |
+| Kinship | RESCAL | `configs/kinship-rescal.yaml` | 0.847 ± 0.002 | 0.766 ± 0.003 | 0.977 ± 0.003 |
 
 `configs/nations-transe.yaml` comes from an earlier, small manual sweep, not from this
 protocol. It reaches test MRR 0.49 (MPS) and 0.50 (CPU) on Nations, in a single run.

@@ -1,0 +1,44 @@
+# complex on kinship, tuned with scripts/tune.py (see docs/hyperparameter_tuning.md).
+#   kge start configs/kinship-complex.yaml --random_seed.default 1
+job.type: train
+job.auto_correct: true
+dataset.name: kinship
+import:
+- complex
+- reciprocal_relations_model
+reciprocal_relations_model.base_model.type: complex
+train.max_epochs: 400
+train.lr_scheduler: ReduceLROnPlateau
+train.lr_scheduler_args.mode: max
+train.lr_scheduler_args.factor: 0.95
+train.lr_scheduler_args.threshold: 0.0001
+valid.every: 5
+valid.metric: mean_reciprocal_rank_filtered
+valid.early_stopping.patience: 10
+valid.early_stopping.threshold.epochs: 50
+valid.early_stopping.threshold.metric_value: 0.0503
+entity_ranking.filter_with_test: false
+eval.batch_size: 256
+model: complex
+train.type: KvsAll
+train.loss: kl
+train.batch_size: 256
+train.optimizer.default.type: Adagrad
+train.optimizer.default.args.lr: 0.16986725982849246
+train.lr_scheduler_args.patience: 8
+lookup_embedder.dim: 512
+lookup_embedder.initialize: uniform_
+lookup_embedder.initialize_args.normal_.mean: 0.0
+lookup_embedder.initialize_args.normal_.std: 0.013842240734710302
+lookup_embedder.initialize_args.uniform_.a: -0.5308595941940247
+lookup_embedder.initialize_args.uniform_.b: 0.5308595941940247
+lookup_embedder.initialize_args.xavier_normal_.gain: 1.0
+lookup_embedder.initialize_args.xavier_uniform_.gain: 1.0
+lookup_embedder.regularize: lp
+lookup_embedder.regularize_args.p: 2
+lookup_embedder.regularize_args.weighted: true
+complex.entity_embedder.regularize_weight: 1.3594471628455407e-06
+complex.relation_embedder.regularize_weight: 0.00044796168067599043
+complex.entity_embedder.dropout: 0.37988240344650465
+complex.relation_embedder.dropout: 0.0
+KvsAll.label_smoothing: 0.27905436194323474

@@ -50,11 +50,21 @@ A quick test of all stages on Nations with 1 trial per search stage (7 Sobol tri
 uv run --group modal modal run cloud/modal/app.py --datasets nations --models rescal --trials 1 --max-epochs 5 --run smoke
 ```
 
-The full protocol for several pairs. `--detach` keeps it running when the terminal is
-closed:
+The full protocol for a pair. `--detach` keeps it running when the terminal is closed;
+start one command per pair, since Modal keeps only the last started call of a detached
+command alive once the terminal disconnects:
 
 ```bash
-uv run --group modal modal run --detach cloud/modal/app.py --datasets nations,umls,kinship --models rescal
+uv run --group modal modal run --detach cloud/modal/app.py --datasets umls --models distmult
+```
+
+RESCAL uses its own script, [tune_rescal.py](tune_rescal.py): the protocol of
+`scripts/tune.py` with embedding sizes 32, 64 and 128. RESCAL learns a d × d matrix per
+relation; on Nations, sizes 256 and 512 took 70% of the compute without reaching the best
+validation MRR.
+
+```bash
+uv run --group modal modal run --detach cloud/modal/app.py --datasets umls --models rescal --script cloud/modal/tune_rescal.py --run rescal
 ```
 
 | Option | Default | |
@@ -66,6 +76,7 @@ uv run --group modal modal run --detach cloud/modal/app.py --datasets nations,um
 | `--max-epochs` | 400 | epochs per training (for tests) |
 | `--gpu` | `T4` | Modal GPU type, e.g. `L4`, `A10`, `A100` |
 | `--workers` | 4 | parallel trials per GPU; also the CPU cores requested |
+| `--script` | `scripts/tune.py` | tuning script, e.g. `cloud/modal/tune_rescal.py` |
 
 **Resuming.** Stages resume where they stopped (see the protocol), so after an
 interruption (a stopped app, a crash, Modal's 24-hour limit per call) run the same
