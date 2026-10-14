@@ -322,7 +322,7 @@ its average over the splits):
 
 | Setting | Value |
 |---|---|
-| Models | DistMult, ComplEx and RESCAL: the selected configuration of each dataset, 5 seeds (`models/<dataset>-<model>/seed{1..5}.pt`, see [trained models](../README.md#trained-models)) |
+| Models | DistMult, ComplEx and RESCAL: the selected configuration of each dataset, 5 seeds (`models/<dataset>-<model>/seed{1..5}.pt`, from [Hugging Face](https://huggingface.co/Yuqicheng/KGCP-KGE-Checkpoints), see [trained models](../README.md#trained-models)) |
 | Calibration | random half of the test queries; evaluation on the other half |
 | Splits | 100 per seed, different for each seed and the same for the three models (500 per dataset and model) |
 | Filtering | train + valid |

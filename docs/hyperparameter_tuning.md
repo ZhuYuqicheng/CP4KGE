@@ -27,8 +27,9 @@ The selected configurations differ between models and datasets (see
 [below](#search-details)). DistMult uses reciprocal relations and cross-entropy
 everywhere, with 1vsAll training on Nations and Kinship and KvsAll on UMLS. ComplEx
 uses KvsAll + CE without reciprocal relations on UMLS and Kinship, and negative
-sampling with BCE on Nations. The 5 trained models per pair are in
-`models/<dataset>-<model>/seed{1..5}.pt`, with the configuration as `config.yaml` (see
+sampling with BCE on Nations. The 5 trained models per pair are on
+[Hugging Face](https://huggingface.co/Yuqicheng/KGCP-KGE-Checkpoints), downloaded to
+`models/<dataset>-<model>/seed{1..5}.pt` with the configuration as `config.yaml` (see
 [trained models](../README.md#trained-models)). `scripts/tune.py export` packages them
 from the final runs, `runs/hpo/final/<dataset>-<model>/top<rank>/seed{1..5}/`, where
 rank is the selected search rank (`selected` in the result JSON). The full results are

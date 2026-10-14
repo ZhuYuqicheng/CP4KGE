@@ -1,13 +1,20 @@
 [project]
-name = "kge-conformal"
+name = "kgcp"
 version = "0.1.0"
 description = "Conformal prediction for knowledge graph embeddings."
 readme = "README.md"
+authors = [{ name = "Yuqicheng Zhu" }]
 requires-python = ">=3.10"
 dependencies = ["libkge", "torch>=2.0"]
 
+[project.urls]
+Repository = "https://github.com/ZhuYuqicheng/CP4KGE"
+Models = "https://huggingface.co/Yuqicheng/KGCP-KGE-Checkpoints"
+
 [dependency-groups]
 dev = [
+    "ipykernel>=7.3.0",
+    "matplotlib>=3.10.9",
     "optuna>=5.0.0",
     "pytest",
     "scipy>=1.15.3",

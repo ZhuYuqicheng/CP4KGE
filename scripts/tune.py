@@ -36,18 +36,17 @@ import optuna
 import pandas as pd
 import torch
 import yaml
-from optuna.samplers import QMCSampler, TPESampler
-from optuna.storages import JournalStorage
-from optuna.storages.journal import JournalFileBackend
-from optuna.trial import TrialState
-from tqdm import tqdm
-
 from kge import Config, Dataset
 from kge.job import Job
 from kge.misc import kge_base_dir
 from kge.util.io import load_checkpoint
 from kge.util.package import package_model
 from kge.util.seed import seed_from_config
+from optuna.samplers import QMCSampler, TPESampler
+from optuna.storages import JournalStorage
+from optuna.storages.journal import JournalFileBackend
+from optuna.trial import TrialState
+from tqdm import tqdm
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNS = ROOT / "runs" / "hpo"
@@ -150,9 +149,7 @@ def suggest(trial: optuna.Trial, dataset: str, model: str, train_type: str, loss
         "lookup_embedder.regularize_args.p": int(regularize[1:]) if regularize else 2,
         "lookup_embedder.regularize_args.weighted": c("reg_weighted", [True, False]),
         f"{model}.entity_embedder.regularize_weight": f("reg_entity", 1e-20, 0.1, log=True),
-        f"{model}.relation_embedder.regularize_weight": f(
-            "reg_relation", 1e-20, 0.1, log=True
-        ),
+        f"{model}.relation_embedder.regularize_weight": f("reg_relation", 1e-20, 0.1, log=True),
         f"{model}.entity_embedder.dropout": max(0.0, f("dropout_entity", -0.5, 0.5)),
         f"{model}.relation_embedder.dropout": max(0.0, f("dropout_relation", -0.5, 0.5)),
     }
@@ -167,9 +164,7 @@ def suggest(trial: optuna.Trial, dataset: str, model: str, train_type: str, loss
     if model == "transe":
         options["transe.l_norm"] = c("l_norm", [1.0, 2.0])
         options["transe.entity_embedder.normalize.p"] = c("normalize_entity", [-1.0, 2.0])
-        options["transe.relation_embedder.normalize.p"] = c(
-            "normalize_relation", [-1.0, 2.0]
-        )
+        options["transe.relation_embedder.normalize.p"] = c("normalize_relation", [-1.0, 2.0])
     return options
 
 
@@ -220,7 +215,8 @@ def by_cost(datasets, models):
     pairs = [(d, m) for d in datasets for m in models]
     # TransE scores with pairwise distances and is several times slower than DistMult
     return sorted(
-        pairs, key=lambda p: (dataset_meta(p[0])["files.train.size"], p[1] == "transe"),
+        pairs,
+        key=lambda p: (dataset_meta(p[0])["files.train.size"], p[1] == "transe"),
         reverse=True,
     )
 
@@ -335,7 +331,8 @@ def init_worker(runs: Path, trials: dict, runtime: dict, finished, workers: int)
         # Workers that share a GPU get equal parts of its memory (leaving room for their
         # CUDA contexts); otherwise memory that one worker keeps cached makes the others
         # run out. A training that needs more splits its batches (train.subbatch_auto_tune).
-        torch.cuda.set_per_process_memory_fraction(0.85 / workers)
+        device = torch.device(runtime["job.device"]).index  # cuda:1 -> 1; cuda -> default
+        torch.cuda.set_per_process_memory_fraction(0.85 / workers, device)
     optuna.logging.set_verbosity(optuna.logging.ERROR)
     warnings.filterwarnings("ignore", category=optuna.exceptions.ExperimentalWarning)
 
@@ -371,10 +368,10 @@ def run_parallel(fn, tasks, workers, total, unit="trial"):
 
 def cmd_sobol(args):
     tasks = [
-        (d, m, t, l, "sobol", n, SEARCH_SEED)
+        (d, m, train_type, loss, "sobol", n, SEARCH_SEED)
         for d, m in by_cost(args.datasets, args.models)
-        for t, l in COMBINATIONS
-        if (n := prepare(d, m, t, l, "sobol"))
+        for train_type, loss in COMBINATIONS
+        if (n := prepare(d, m, train_type, loss, "sobol"))
     ]
     run_studies(tasks, args.workers)
 
@@ -417,7 +414,8 @@ def cmd_final(args):
         }
         selected = max(valid_mrr, key=lambda r: statistics.mean(valid_mrr[r]))
         tests = {
-            seed: evaluate(folder) for _, seed, _, folder in sorted(candidates[selected], key=lambda x: x[1])
+            seed: evaluate(folder)
+            for _, seed, _, folder in sorted(candidates[selected], key=lambda x: x[1])
         }
         result = {
             "dataset": d,
@@ -427,7 +425,9 @@ def cmd_final(args):
                 r: {"valid_mrr": valid_mrr[r], "options": candidates[r][0][0]}
                 for r in sorted(candidates)
             },
-            "test": {seed: {k: v for k, v in t.items() if "filtered" in k} for seed, t in tests.items()},
+            "test": {
+                seed: {k: v for k, v in t.items() if "filtered" in k} for seed, t in tests.items()
+            },
         }
         with open(RUNS / "results" / f"{d}-{m}.json", "w") as f:
             json.dump(result, f, indent=2)
@@ -527,16 +527,20 @@ def cmd_time(args):
     torch.set_num_threads(1)  # as in a worker
     for d, m in by_cost(args.datasets, args.models):
         for dim in DIMS:
-            options = fixed_options(d, m) | RUNTIME | {
-                "model": "reciprocal_relations_model",
-                "train.type": "1vsAll",
-                "train.loss": "kl",
-                "train.batch_size": 64,
-                "train.optimizer.default.type": "Adam",
-                "train.optimizer.default.args.lr": 1e-3,
-                "lookup_embedder.dim": dim,
-                "train.max_epochs": TIME_EPOCHS,
-            }
+            options = (
+                fixed_options(d, m)
+                | RUNTIME
+                | {
+                    "model": "reciprocal_relations_model",
+                    "train.type": "1vsAll",
+                    "train.loss": "kl",
+                    "train.batch_size": 64,
+                    "train.optimizer.default.type": "Adam",
+                    "train.optimizer.default.args.lr": 1e-3,
+                    "lookup_embedder.dim": dim,
+                    "train.max_epochs": TIME_EPOCHS,
+                }
+            )
             with tempfile.TemporaryDirectory() as tmp:
                 train(options, Path(tmp) / "run")
                 trace = read_trace(Path(tmp) / "run")
@@ -553,13 +557,13 @@ def cmd_time(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument(
-        "command", choices=["sobol", "refine", "final", "report", "time", "export"]
-    )
+    parser.add_argument("command", choices=["sobol", "refine", "final", "report", "time", "export"])
     parser.add_argument("--datasets", nargs="+", default=["nations", "umls", "kinship"])
     parser.add_argument("--models", nargs="+", default=["transe", "distmult"])
     parser.add_argument("--workers", type=int, default=8)
-    parser.add_argument("--device", default="cpu", help="where models train: cpu, cuda, mps")
+    parser.add_argument(
+        "--device", default="cpu", help="where models train: cpu, cuda, cuda:N, mps"
+    )
     parser.add_argument("--dir", type=Path, default=RUNS, help="where trials are stored")
     parser.add_argument("--trials", type=int, help="trials per stage (default: 30)")
     parser.add_argument("--max-epochs", type=int, help="epochs per training (default: 400)")

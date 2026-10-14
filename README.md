@@ -1,7 +1,6 @@
-# KGE Conformal
+# KGCP: conformal prediction for knowledge graph embeddings
 
-Conformal prediction for knowledge graph embeddings. `kgcp` turns the scores of a
-trained KGE model into answer sets that contain the true answer with a chosen
+`kgcp` turns the scores of a trained knowledge graph embedding (KGE) model into answer sets that contain the true answer with a chosen
 probability (e.g. 90%). Models are trained with [LibKGE](https://github.com/uma-pi1/kge),
 patched for recent PyTorch and Apple Silicon; other pipelines can plug in their scores.
 
@@ -11,8 +10,9 @@ patched for recent PyTorch and Apple Silicon; other pipelines can plug in their 
 src/kgcp/             conformal prediction library
 cloud/                hyperparameter tuning on cloud GPUs (Modal)
 configs/              training configurations (tuned ones: see docs/)
-models/               trained models of the tuned configurations (git-ignored, see below)
+models/               trained models of the tuned configurations (downloaded, git-ignored)
 docs/                 conformal prediction and hyperparameter tuning: protocols, results
+notebooks/            Jupyter notebooks: a guide to kgcp and investigations
 results/              conformal prediction and tuning results
 scripts/              dataset download, hyperparameter tuning, conformal experiments
 tests/                tests of kgcp
@@ -36,7 +36,18 @@ older, point uv at a matching [PyTorch index](https://docs.astral.sh/uv/guides/i
 ## Trained models
 
 The 5 models (seeds 1–5) of each tuned configuration in [KGE results](#kge-results),
-for DistMult, ComplEx and RESCAL on Nations, UMLS and Kinship, one folder per pair:
+for DistMult, ComplEx and RESCAL on Nations, UMLS and Kinship, are on Hugging Face:
+[Yuqicheng/KGCP-KGE-Checkpoints](https://huggingface.co/Yuqicheng/KGCP-KGE-Checkpoints)
+(31 MB). Download them into `models/`, which is git-ignored:
+
+```bash
+uvx --from huggingface_hub hf download Yuqicheng/KGCP-KGE-Checkpoints \
+    --include "models/*" --local-dir .
+```
+
+Keep `--include`: without it, the model card of the Hugging Face repository overwrites
+this README. `--include "models/umls-*"` downloads the models of one dataset. One
+folder per pair:
 
 ```
 models/<dataset>-<model>/
@@ -44,9 +55,6 @@ models/<dataset>-<model>/
                         kge start config.yaml --random_seed.default <N>
   seed1.pt … seed5.pt   LibKGE packaged models: weights, configuration, entity/relation ids
 ```
-
-**Download:** the models will be published on Hugging Face (link to be added).
-`models/` is git-ignored (31 MB).
 
 The models need their dataset, since they hold the entity and relation ids but not the
 triples (`uv run scripts/download_data.py nations umls kinship`). Load one with
@@ -194,5 +202,6 @@ LibKGE is vendored without its git history. All changes against upstream 9bca31f
   traces as a string so `trace.yaml` stays readable with `yaml.safe_load`.
 - **Python 3.12+**: regex literals are raw strings (no invalid escape warnings).
 
-Not yet verified: training on CUDA (no NVIDIA GPU was available) and the
-hyperparameter search extras with current Ax releases.
+Training was tested on CPU, Apple MPS and CUDA (an NVIDIA T4 on Modal, see
+[cloud/](cloud/)). Not yet verified: the hyperparameter search extras with current Ax
+releases.
