@@ -106,7 +106,11 @@ uv run --group modal modal volume get kge-runs hpo/nations-rescal runs/modal/
 The selected configuration is in `configs/`, the results (search ranks, validation MRR
 per seed, test metrics) in `results/`, and the 5 trained models in `final/`. Copy the
 configuration and results into `configs/` and `results/hpo/` of the repository, as for
-local runs.
+local runs, then package the selected models into `models/`:
+
+```bash
+uv run scripts/tune.py export --dir runs/modal/nations-rescal --datasets nations --models rescal
+```
 
 GPU and CPU runs are not bit-identical, so each pair is tuned on one device from start
 to finish (`history.txt` shows the device).

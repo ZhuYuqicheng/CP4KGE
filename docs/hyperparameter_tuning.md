@@ -27,8 +27,10 @@ The selected configurations differ between models and datasets (see
 [below](#search-details)). DistMult uses reciprocal relations and cross-entropy
 everywhere, with 1vsAll training on Nations and Kinship and KvsAll on UMLS. ComplEx
 uses KvsAll + CE without reciprocal relations on UMLS and Kinship, and negative
-sampling with BCE on Nations. The 5 trained models per pair are kept in
-`runs/hpo/final/<dataset>-<model>/top<rank>/seed{1..5}/`, as `checkpoint_best.pt`, where
+sampling with BCE on Nations. The 5 trained models per pair are in
+`models/<dataset>-<model>/seed{1..5}.pt`, with the configuration as `config.yaml` (see
+[trained models](../README.md#trained-models)). `scripts/tune.py export` packages them
+from the final runs, `runs/hpo/final/<dataset>-<model>/top<rank>/seed{1..5}/`, where
 rank is the selected search rank (`selected` in the result JSON). The full results are
 in [results/hpo/](../results/hpo/): one JSON per dataset and model, plus `trials.csv`
 with all 2,160 search trials (240 per pair).
@@ -357,11 +359,13 @@ done
 ```
 
 The stages are `sobol` (stage 1), `refine` (stage 2), `final` (stage 3: reruns,
-selection and test evaluation) and `report` (all trials as CSV). A progress bar shows
-the finished trials (final runs in stage 3) and the estimated remaining time. `--workers`
-sets the number of parallel processes (default 8), `--device` where they train (default
-`cpu`; e.g. `cuda`, `mps`). `--dir` and `--trials` allow a quick debug
-run in a separate directory, e.g. `--dir /tmp/hpo-debug --trials 2`.
+selection and test evaluation) and `report` (all trials as CSV). Once the results are
+copied into `results/hpo/` (see below), `export` packages the 5 models of each selected
+configuration into `models/`. A progress bar shows the finished trials (final runs in
+stage 3) and the estimated remaining time. `--workers` sets the number of parallel
+processes (default 8), `--device` where they train (default `cpu`; e.g. `cuda`, `mps`).
+`--dir` and `--trials` allow a quick debug run in a separate directory, e.g.
+`--dir /tmp/hpo-debug --trials 2`.
 
 Everything is written to `runs/hpo/`: `journal.log` (all trials; every stage resumes
 where it stopped), `final/` (the 5-seed models of the top-3 configurations),
@@ -371,7 +375,7 @@ the same stages on Modal GPUs, one container per (dataset, model) pair; RESCAL o
 and Kinship ran [cloud/modal/tune_rescal.py](../cloud/modal/tune_rescal.py) instead of
 `scripts/tune.py`. RESCAL's trials are in its downloaded Modal run folders,
 `runs/modal/<dataset>-rescal/`, and its final models were copied to
-`runs/hpo/final/<dataset>-rescal/`.
+`runs/hpo/final/<dataset>-rescal/` (or export them with `--dir runs/modal/<pair>`).
 
 Train a selected configuration directly with libkge:
 
