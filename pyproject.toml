@@ -8,6 +8,8 @@ dependencies = ["libkge", "torch>=2.0"]
 
 [dependency-groups]
 dev = [
+    "ipykernel>=7.3.0",
+    "matplotlib>=3.10.9",
     "optuna>=5.0.0",
     "pytest",
     "scipy>=1.15.3",
