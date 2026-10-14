@@ -1,7 +1,6 @@
-# KGE Conformal
+# KGCP: conformal prediction for knowledge graph embeddings
 
-Conformal prediction for knowledge graph embeddings. `kgcp` turns the scores of a
-trained KGE model into answer sets that contain the true answer with a chosen
+`kgcp` turns the scores of a trained knowledge graph embedding (KGE) model into answer sets that contain the true answer with a chosen
 probability (e.g. 90%). Models are trained with [LibKGE](https://github.com/uma-pi1/kge),
 patched for recent PyTorch and Apple Silicon; other pipelines can plug in their scores.
 
@@ -203,5 +202,6 @@ LibKGE is vendored without its git history. All changes against upstream 9bca31f
   traces as a string so `trace.yaml` stays readable with `yaml.safe_load`.
 - **Python 3.12+**: regex literals are raw strings (no invalid escape warnings).
 
-Not yet verified: training on CUDA (no NVIDIA GPU was available) and the
-hyperparameter search extras with current Ax releases.
+Training was tested on CPU, Apple MPS and CUDA (an NVIDIA T4 on Modal, see
+[cloud/](cloud/)). Not yet verified: the hyperparameter search extras with current Ax
+releases.

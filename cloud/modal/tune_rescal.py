@@ -25,7 +25,9 @@ if __name__ == "__main__":
     parser.add_argument("--datasets", nargs="+", default=["nations", "umls", "kinship"])
     parser.add_argument("--models", nargs="+", default=["rescal"])
     parser.add_argument("--workers", type=int, default=8)
-    parser.add_argument("--device", default="cpu", help="where models train: cpu, cuda, mps")
+    parser.add_argument(
+        "--device", default="cpu", help="where models train: cpu, cuda, cuda:N, mps"
+    )
     parser.add_argument("--dir", type=Path, default=tune.RUNS, help="where trials are stored")
     parser.add_argument("--trials", type=int, help="trials per stage (default: 30)")
     parser.add_argument("--max-epochs", type=int, help="epochs per training (default: 400)")

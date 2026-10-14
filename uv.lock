@@ -1556,7 +1556,7 @@ wheels = [
 ]
 
 [[package]]
-name = "kge-conformal"
+name = "kgcp"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
