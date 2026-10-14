@@ -20,7 +20,12 @@ class KGEModel(Protocol):
 
 
 class LibKGE:
-    """A trained LibKGE model, from a checkpoint file or a training folder."""
+    """A trained LibKGE model, from a checkpoint or packaged model file (such as
+    models/<dataset>-<model>/seed<N>.pt), or a training folder.
+
+    The model's dataset must be in LibKGE's data folder: packaged models hold the
+    entity and relation ids, but not the triples.
+    """
 
     def __init__(self, checkpoint: str | Path, device: str = "auto"):
         from kge.model import KgeModel

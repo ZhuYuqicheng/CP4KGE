@@ -1,4 +1,4 @@
-"""Conformal prediction experiments with the tuned models of scripts/tune.py.
+"""Conformal prediction experiments with the tuned models in models/ (scripts/tune.py).
 
 For every trained model (dataset x model x seed) and score function, scores all test
 queries once, then calibrates on random halves of the test queries and evaluates on the
@@ -16,7 +16,6 @@ splits, and prints a summary (mean ± std over seeds).
 
 import argparse
 import csv
-import json
 import statistics
 import time
 from pathlib import Path
@@ -38,12 +37,13 @@ GROUPS = {"marginal": kgcp.marginal, "relation": kgcp.by_relation, "direction": 
 SUMMARY = ["coverage", "size", "singleton", "covgap", "ucr", "cond_size"]
 
 
-def model_folders(dataset: str, model: str, seeds: list[int] | None) -> list[Path]:
-    """The trained models of the selected configuration, one per seed."""
-    result = json.loads((ROOT / "results/hpo" / f"{dataset}-{model}.json").read_text())
-    folder = ROOT / "runs/hpo/final" / f"{dataset}-{model}" / f"top{result['selected']}"
-    folders = sorted(folder.glob("seed*"))
-    return [f for f in folders if seeds is None or int(f.name[4:]) in seeds]
+def model_files(dataset: str, model: str, seeds: list[int] | None) -> list[Path]:
+    """The trained models of the selected configuration, models/<dataset>-<model>/seed<N>.pt."""
+    folder = ROOT / "models" / f"{dataset}-{model}"
+    files = sorted(folder.glob("seed*.pt"))
+    if not files:
+        raise FileNotFoundError(f"no models in {folder} (see README.md#trained-models)")
+    return [f for f in files if seeds is None or int(f.stem[4:]) in seeds]
 
 
 def calibration_splits(model, score, calibration: str, num_splits: int, seed: int) -> list:
@@ -67,8 +67,8 @@ def calibration_splits(model, score, calibration: str, num_splits: int, seed: in
 
 def run(dataset: str, model_name: str, args) -> list[dict]:
     rows = []
-    for folder in model_folders(dataset, model_name, args.seeds):
-        model, seed = kgcp.LibKGE(folder, device=args.device), int(folder.name[4:])
+    for file in model_files(dataset, model_name, args.seeds):
+        model, seed = kgcp.LibKGE(file, device=args.device), int(file.stem[4:])
         for score_name, score in SCORES.items():
             splits = calibration_splits(model, score, args.calibration, args.splits, seed)
             for alpha in args.alphas:

@@ -10,11 +10,13 @@ ICLR 2020 study (Ruffinelli et al., "You CAN Teach an Old Dog New Tricks!"):
     report  export all trials to runs/hpo/results/trials.csv
     time    train one model per embedding size for a few epochs and print its speed,
             to estimate the cost of a search before running it
+    export  package the 5 models of each selected configuration, as recorded in
+            results/hpo/, into models/<dataset>-<model>/ with their config file
 
     python scripts/tune.py sobol --datasets nations umls kinship --models transe distmult
 
-Everything is written to runs/hpo/ (see --dir): the trials (journal.log, which makes
-every stage resumable), the final runs, and the selected configs and results.
+Everything else is written to runs/hpo/ (see --dir): the trials (journal.log, which
+makes every stage resumable), the final runs, and the selected configs and results.
 """
 
 import argparse
@@ -44,9 +46,12 @@ from kge import Config, Dataset
 from kge.job import Job
 from kge.misc import kge_base_dir
 from kge.util.io import load_checkpoint
+from kge.util.package import package_model
 from kge.util.seed import seed_from_config
 
-RUNS = Path(__file__).resolve().parents[1] / "runs" / "hpo"
+ROOT = Path(__file__).resolve().parents[1]
+RUNS = ROOT / "runs" / "hpo"
+RESULTS, MODELS = ROOT / "results" / "hpo", ROOT / "models"  # selection, and its models
 
 COMBINATIONS = [  # (train.type, train.loss), as in Ruffinelli et al. (2020)
     ("negative_sampling", "kl"),
@@ -426,7 +431,11 @@ def cmd_final(args):
         }
         with open(RUNS / "results" / f"{d}-{m}.json", "w") as f:
             json.dump(result, f, indent=2)
-        write_config(d, m, candidates[selected][0][0])
+        header = (
+            f"# {m} on {d}, tuned with scripts/tune.py (see docs/hyperparameter_tuning.md).\n"
+            f"#   kge start configs/{d}-{m}.yaml --random_seed.default 1\n"
+        )
+        write_config(RUNS / "configs" / f"{d}-{m}.yaml", candidates[selected][0][0], header)
         test_mrr = [t[METRIC] for t in tests.values()]
         print(
             f"{d}-{m}: selected top{selected}, test MRR "
@@ -434,8 +443,8 @@ def cmd_final(args):
         )
 
 
-def write_config(dataset, model, options):
-    """Writes the selected configuration as a plain libkge config file."""
+def write_config(path: Path, options: dict, header: str):
+    """Writes a trial's options as a plain libkge config file, without runtime options."""
     runtime = {
         "job.device",
         "train.subbatch_auto_tune",
@@ -445,14 +454,44 @@ def write_config(dataset, model, options):
     }
     runtime |= {k for k in options if k.startswith("train.checkpoint")}
     config = {k: v for k, v in options.items() if k not in runtime}
-    header = (
-        f"# {model} on {dataset}, tuned with scripts/tune.py "
-        "(see docs/hyperparameter_tuning.md).\n"
-        f"#   kge start configs/{dataset}-{model}.yaml --random_seed.default 1\n"
-    )
-    (RUNS / "configs").mkdir(exist_ok=True)
-    with open(RUNS / "configs" / f"{dataset}-{model}.yaml", "w") as f:
-        f.write(header + yaml.safe_dump(config, sort_keys=False))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(header + yaml.safe_dump(config, sort_keys=False))
+
+
+def cmd_export(args):
+    """Packages the 5 models of each selected configuration, with its config file.
+
+    Reads the selection from results/hpo/<dataset>-<model>.json and writes
+    models/<dataset>-<model>/: config.yaml and seed<N>.pt, a LibKGE packaged model
+    (weights, config and entity/relation ids; no optimizer state).
+    """
+    for d in args.datasets:
+        for m in args.models:
+            path = RESULTS / f"{d}-{m}.json"
+            if not path.exists():
+                print(f"{d}-{m}: skipped, no {path.relative_to(ROOT)}")
+                continue
+            result = json.loads(path.read_text())
+            selected, target = result["selected"], MODELS / f"{d}-{m}"
+            header = (
+                f"# {m} on {d}, tuned with scripts/tune.py of github.com/ZhuYuqicheng/CP4KGE\n"
+                "# (docs/hyperparameter_tuning.md). seed<N>.pt was trained with\n"
+                "#   kge start config.yaml --random_seed.default <N>\n"
+            )
+            options = result["candidates"][str(selected)]["options"]
+            write_config(target / "config.yaml", options, header)
+            for seed in SEEDS:
+                run = RUNS / "final" / f"{d}-{m}" / f"top{selected}" / f"seed{seed}"
+                checkpoint, file = run / "checkpoint_best.pt", target / f"seed{seed}.pt"
+                package_model(argparse.Namespace(checkpoint=str(checkpoint), file=str(file)))
+                # drop what identifies the training machine: the run folder, and the
+                # training metadata of the weights (user and host name; the config and
+                # validation trace are packaged anyway)
+                package = torch.load(file, weights_only=False)
+                package["config"].folder = None
+                package["model"] = (package["model"][0], {})
+                torch.save(package, file)
+            print(f"{d}-{m}: exported top{selected} to {target.relative_to(ROOT)}")
 
 
 def cmd_report(args):
@@ -514,7 +553,9 @@ def cmd_time(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("command", choices=["sobol", "refine", "final", "report", "time"])
+    parser.add_argument(
+        "command", choices=["sobol", "refine", "final", "report", "time", "export"]
+    )
     parser.add_argument("--datasets", nargs="+", default=["nations", "umls", "kinship"])
     parser.add_argument("--models", nargs="+", default=["transe", "distmult"])
     parser.add_argument("--workers", type=int, default=8)

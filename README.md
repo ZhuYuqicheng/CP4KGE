@@ -11,6 +11,7 @@ patched for recent PyTorch and Apple Silicon; other pipelines can plug in their 
 src/kgcp/             conformal prediction library
 cloud/                hyperparameter tuning on cloud GPUs (Modal)
 configs/              training configurations (tuned ones: see docs/)
+models/               trained models of the tuned configurations (git-ignored, see below)
 docs/                 conformal prediction and hyperparameter tuning: protocols, results
 results/              conformal prediction and tuning results
 scripts/              dataset download, hyperparameter tuning, conformal experiments
@@ -32,12 +33,42 @@ uv sync
 On Linux x86_64, the locked PyTorch wheel targets CUDA 13. If your GPU driver is
 older, point uv at a matching [PyTorch index](https://docs.astral.sh/uv/guides/integration/pytorch/).
 
+## Trained models
+
+The 5 models (seeds 1–5) of each tuned configuration in [KGE results](#kge-results),
+for DistMult, ComplEx and RESCAL on Nations, UMLS and Kinship, one folder per pair:
+
+```
+models/<dataset>-<model>/
+  config.yaml           LibKGE configuration; seed<N>.pt was trained with
+                        kge start config.yaml --random_seed.default <N>
+  seed1.pt … seed5.pt   LibKGE packaged models: weights, configuration, entity/relation ids
+```
+
+**Download:** the models will be published on Hugging Face (link to be added).
+`models/` is git-ignored (31 MB).
+
+The models need their dataset, since they hold the entity and relation ids but not the
+triples (`uv run scripts/download_data.py nations umls kinship`). Load one with
+`kgcp.LibKGE("models/umls-distmult/seed1.pt")`, or with LibKGE alone:
+`KgeModel.create_from(load_checkpoint("models/umls-distmult/seed1.pt"))`.
+`uv run pytest` checks that every model reproduces its recorded test metrics.
+
+DistMult and ComplEx were trained on Apple MPS, RESCAL on an NVIDIA T4; retraining
+from `config.yaml` on other hardware gives similar, not identical models. To rebuild
+`models/` from the tuning runs in `runs/hpo/final/`, using the selection recorded in
+`results/hpo/`:
+
+```bash
+uv run scripts/tune.py export --models distmult complex rescal
+```
+
 ## Conformal prediction
 
 ```python
 import kgcp
 
-model = kgcp.LibKGE("runs/hpo/final/umls-distmult/top3/seed1")  # device: cuda > mps > cpu
+model = kgcp.LibKGE("models/umls-distmult/seed1.pt")  # device: cuda > mps > cpu
 kg = model.kg  # splits and ids of the model's dataset
 
 # nonconformity of every candidate answer of the test queries (s, p, ?) and (?, p, o);
@@ -74,7 +105,7 @@ model accuracy), reproduced with
 uv run scripts/conformal.py --datasets nations umls kinship
 ```
 
-Run the tests with `uv run pytest` (the LibKGE test needs the tuned Nations models).
+Run the tests with `uv run pytest` (the LibKGE tests need the [trained models](#trained-models)).
 
 ## Training KGE models
 
