@@ -24,6 +24,7 @@ import time
 from pathlib import Path
 
 import torch
+from tqdm import tqdm
 
 import kgcp
 
@@ -86,7 +87,7 @@ def evaluate(score_split, score, seed: int, args) -> list[dict]:
     return rows
 
 
-def evaluate_model(file: Path, seed: int, args) -> list[dict]:
+def evaluate_model(file: Path, seed: int, args, bar: tqdm) -> list[dict]:
     """Rows of a trained model: per score function, alpha and grouping."""
     model = kgcp.LibKGE(file, device=args.device)
     kg = model.kg
@@ -103,21 +104,22 @@ def evaluate_model(file: Path, seed: int, args) -> list[dict]:
         queries, split_logits = data[split]
         return kgcp.nonconformity(split_logits, queries, score, known, seed=seed)
 
-    return [
-        {"score": name} | row
-        for name, score in SCORES.items()
-        for row in evaluate(score_split, score, seed, args)
-    ]
+    rows = []
+    for name, score in SCORES.items():
+        rows += [{"score": name} | row for row in evaluate(score_split, score, seed, args)]
+        bar.update()
+    return rows
 
 
-def run(path: Path, args) -> list[dict]:
+def run(path: Path, files: list[tuple[Path, int]], args, bar: tqdm) -> list[dict]:
     name = path.stem if path.is_file() else path.name
     dataset, model = name.rsplit("-", 1)
-    return [
-        {"dataset": dataset, "model": model, "seed": seed, "calibration": args.calibration} | row
-        for file, seed in model_files(path, args.seeds)
-        for row in evaluate_model(file, seed, args)
-    ]
+    rows = []
+    for file, seed in files:
+        bar.set_postfix_str(f"{name} seed {seed}")
+        key = {"dataset": dataset, "model": model, "seed": seed, "calibration": args.calibration}
+        rows += [key | row for row in evaluate_model(file, seed, args, bar)]
+    return rows
 
 
 def summarize(rows: list[dict]) -> str:
@@ -155,17 +157,20 @@ def main():
     args = parser.parse_args()
 
     args.out.mkdir(parents=True, exist_ok=True)
-    for path in args.models:
-        start = time.time()
-        rows = run(path, args)
-        name = f"{rows[0]['dataset']}-{rows[0]['model']}"
-        out = args.out / f"{name}-{args.calibration}.csv"
-        with open(out, "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=list(rows[0]))
-            writer.writeheader()
-            writer.writerows(rows)
-        print(f"## {name} ({time.time() - start:.0f} s, {out})\n")
-        print(summarize(rows) + "\n", flush=True)
+    models = {path: model_files(path, args.seeds) for path in args.models}
+    total = len(SCORES) * sum(map(len, models.values()))
+    with tqdm(total=total, unit="score", smoothing=0) as bar:  # per model and score function
+        for path, files in models.items():
+            start = time.time()
+            rows = run(path, files, args, bar)
+            name = f"{rows[0]['dataset']}-{rows[0]['model']}"
+            out = args.out / f"{name}-{args.calibration}.csv"
+            with open(out, "w", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=list(rows[0]))
+                writer.writeheader()
+                writer.writerows(rows)
+            tqdm.write(f"## {name} ({time.time() - start:.0f} s, {out})\n")
+            tqdm.write(summarize(rows) + "\n")
 
 
 if __name__ == "__main__":
