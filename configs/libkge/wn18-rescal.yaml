@@ -1,0 +1,54 @@
+# RESCAL on WN18: final configuration of LibKGE's authors, from their later LibKGE runs (2020).
+#   published: https://web.informatik.uni-mannheim.de/pi1/libkge-models/wn18-rescal.yaml
+#   model:     models/libkge/wn18-rescal.pt (LibKGE 4b2414a, PyTorch 1.4.0;
+#              epoch 325, validation MRR 0.9477 filtered with test)
+# Values equal the configuration stored in that model (see models/libkge/README.md).
+# Training: 1vsAll, cross-entropy (kl). Reported test: MRR 0.948, Hits@1 0.943, Hits@3 0.951, Hits@10 0.956.
+# Training penalized twice as strongly as today's LibKGE does with these weights: double
+# both regularize_weight values to reproduce it (models/libkge/README.md).
+#   kge start configs/libkge/wn18-rescal.yaml
+dataset.name: wn18
+import:
+- rescal
+- reciprocal_relations_model
+job.auto_correct: true
+model: reciprocal_relations_model
+reciprocal_relations_model.base_model.relation_embedder.dim: 65536
+reciprocal_relations_model.base_model.type: rescal
+train.batch_size: 256
+train.loss: kl
+train.loss_arg: 1.0
+train.lr_scheduler: ReduceLROnPlateau
+train.lr_scheduler_args.factor: 0.95
+train.lr_scheduler_args.mode: max
+train.lr_scheduler_args.patience: 6
+train.lr_scheduler_args.threshold: 0.0001
+train.max_epochs: 400
+train.optimizer.default.args.lr: 0.164019723382278
+train.optimizer.default.type: Adagrad
+train.type: 1vsAll
+entity_ranking.filter_with_test: true
+entity_ranking.metrics_per.relation_type: true
+eval.batch_size: 256
+eval.trace_level: example
+valid.early_stopping.patience: 10
+valid.early_stopping.threshold.epochs: 50
+valid.early_stopping.threshold.metric_value: 0.05
+valid.every: 5
+valid.metric: mean_reciprocal_rank_filtered_with_test
+lookup_embedder.dim: 256
+lookup_embedder.initialize: xavier_uniform_
+lookup_embedder.initialize_args.normal_.mean: 0.0
+lookup_embedder.initialize_args.normal_.std: 0.0027452953967162064
+lookup_embedder.initialize_args.uniform_.a: -0.7461025531688481
+lookup_embedder.initialize_args.xavier_normal_.gain: 1.0
+lookup_embedder.initialize_args.xavier_uniform_.gain: 1.0
+lookup_embedder.regularize: lp
+lookup_embedder.regularize_args.p: 2
+lookup_embedder.regularize_args.weighted: false
+rescal.entity_embedder.dropout: 0.46531374032890227
+rescal.entity_embedder.regularize_weight: 5.116940665766654e-09
+rescal.relation_embedder.dropout: 0.38594622673484935
+rescal.relation_embedder.regularize_weight: 2.5263177120255504e-08
+negative_sampling.implementation: batch
+negative_sampling.num_samples.p: -1
