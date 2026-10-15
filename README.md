@@ -110,7 +110,7 @@ protocol and all results (per-relation coverage, other scores and α, set size a
 model accuracy), reproduced with
 
 ```bash
-uv run scripts/conformal.py --datasets nations umls kinship
+uv run scripts/conformal.py  # the tuned models in models/
 ```
 
 Run the tests with `uv run pytest` (the LibKGE tests need the [trained models](#trained-models)).

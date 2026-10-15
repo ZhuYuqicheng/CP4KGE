@@ -57,11 +57,13 @@ class APS:
 
     def __call__(self, logits: Tensor, generator: torch.Generator) -> Tensor:
         probs, order = logits.softmax(1).sort(1, descending=True)
-        u = torch.rand(len(probs), 1, generator=generator) if self.randomized else 1.0
-        ranked = probs.cumsum(1) - (1 - u) * probs + self._penalty(probs.shape[1])
+        u = 1.0
+        if self.randomized:  # drawn on the CPU: the same on every device
+            u = torch.rand(len(probs), 1, generator=generator).to(probs.device)
+        ranked = probs.cumsum(1) - (1 - u) * probs + self._penalty(probs)
         return torch.empty_like(ranked).scatter_(1, order, ranked)
 
-    def _penalty(self, num_candidates: int) -> Tensor | float:
+    def _penalty(self, probs: Tensor) -> Tensor | float:
         return 0.0
 
 
@@ -72,8 +74,9 @@ class RAPS(APS):
     lam: float = 0.01
     k_reg: int = 5
 
-    def _penalty(self, num_candidates: int) -> Tensor:
-        return self.lam * (torch.arange(1, num_candidates + 1) - self.k_reg).clamp_min(0)
+    def _penalty(self, probs: Tensor) -> Tensor:
+        ranks = torch.arange(1, probs.shape[1] + 1, device=probs.device)
+        return self.lam * (ranks - self.k_reg).clamp_min(0)
 
 
 @dataclass(frozen=True)
@@ -82,7 +85,8 @@ class Rank:
 
     def __call__(self, logits: Tensor, generator: torch.Generator) -> Tensor:
         order = logits.argsort(dim=1, descending=True, stable=True)
-        ranks = torch.arange(1, logits.shape[1] + 1, dtype=logits.dtype).expand_as(logits)
+        ranks = torch.arange(1, logits.shape[1] + 1, dtype=logits.dtype, device=logits.device)
+        ranks = ranks.expand_as(logits)
         return torch.empty_like(logits).scatter_(1, order, ranks)
 
 
@@ -91,18 +95,19 @@ class Scores:
     """Nonconformity of every candidate entity for each query: [n, E] `values`.
 
     Filtered candidates score +inf and never enter a prediction set. Subsets of the
-    queries (indexing, `split`) share the score matrix: they hold its rows' indices.
+    queries (indexing, `split`) share the score matrices: they hold their rows' indices.
     """
 
     queries: Queries
     matrix: Tensor  # [N, E] scores of the queries that subsets are taken from
+    sorted: Tensor  # [N, E] each row of `matrix` sorted, for set sizes
     rows: Tensor | None = None  # [n] rows of `matrix` with these queries; None: all
 
     def __len__(self) -> int:
         return len(self.queries)
 
     def __getitem__(self, index) -> Scores:
-        return Scores(self.queries[index], self.matrix, self._rows[index])
+        return Scores(self.queries[index], self.matrix, self.sorted, self._rows[index])
 
     @property
     def _rows(self) -> Tensor:
@@ -117,6 +122,22 @@ class Scores:
     def true(self) -> Tensor:
         """[n] nonconformity of each query's target."""
         return self.matrix[self._rows, self.queries.target]
+
+    def count(self, thresholds: Tensor) -> Tensor:
+        """[n] number of candidates whose score is finite and at most the query's threshold.
+
+        A binary search in each sorted row: no pass over the scores.
+        """
+        rows, num_candidates = self._rows, self.sorted.shape[1]
+        thresholds = thresholds.clamp(max=torch.finfo(self.sorted.dtype).max)  # +inf: finite
+        low, high = torch.zeros_like(rows), torch.full_like(rows, num_candidates)
+        for _ in range(num_candidates.bit_length()):  # the first `low` scores are at most it
+            active = low < high
+            middle = (low + high) // 2
+            below = self.sorted[rows, middle.clamp(max=num_candidates - 1)] <= thresholds
+            low = torch.where(active & below, middle + 1, low)
+            high = torch.where(active & ~below, middle, high)
+        return low
 
     def split(self, fraction: float = 0.5, generator: torch.Generator | None = None):
         """Random split of the queries, `fraction` of them into the first part.
@@ -141,21 +162,26 @@ def nonconformity(
 ) -> Scores:
     """Score all candidate answers of the queries.
 
-    `model` is a KGE model or precomputed [n, E] logits. Known answers other than the
-    target are removed from the candidates before scoring.
+    `model` is a KGE model or precomputed [n, E] logits; the scores are computed on its
+    device and kept on the CPU. Known answers other than the target are removed from the
+    candidates before scoring.
     """
     generator = torch.Generator().manual_seed(seed)
-    values = []
+    num_candidates = model.shape[1] if isinstance(model, Tensor) else model.kg.num_entities
+    matrix = torch.empty(len(queries), num_candidates)
+    ordered = torch.empty_like(matrix)
     for start in range(0, len(queries), batch_size):
         batch = queries[start : start + batch_size]
         if isinstance(model, Tensor):
             logits = model[start : start + batch_size]
         else:
             logits = model.score(batch)
-        logits = logits.float().cpu()
+        logits = logits.float()
         filtered = torch.zeros_like(logits, dtype=torch.bool)
         if known is not None:
-            filtered = known(batch)
+            filtered = known(batch).to(logits.device)
         scores = score(logits.masked_fill(filtered, -torch.inf), generator)
-        values.append(scores.masked_fill(filtered, torch.inf))
-    return Scores(queries, torch.cat(values))
+        scores = scores.masked_fill(filtered, torch.inf)
+        matrix[start : start + batch_size] = scores
+        ordered[start : start + batch_size] = scores.sort(1).values
+    return Scores(queries, matrix, ordered)

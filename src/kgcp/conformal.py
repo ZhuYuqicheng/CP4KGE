@@ -25,19 +25,30 @@ def conformal_quantile(scores: Tensor, alpha: float) -> float:
 
 @dataclass(frozen=True)
 class PredictionSets:
-    """Answer sets as an [n, E] bool `mask` over the candidate entities."""
+    """Answer sets: the candidates whose score is at most their query's threshold."""
 
-    mask: Tensor
-    queries: Queries
+    scores: Scores
+    thresholds: Tensor  # [n]
+
+    @property
+    def queries(self) -> Queries:
+        return self.scores.queries
+
+    @property
+    def mask(self) -> Tensor:
+        """[n, E] bool over the candidate entities."""
+        values = self.scores.values
+        return (values <= self.thresholds[:, None]) & values.isfinite()
 
     @property
     def covered(self) -> Tensor:
         """[n] bool: the set contains the query's target."""
-        return self.mask[torch.arange(len(self.mask)), self.queries.target]
+        true = self.scores.true
+        return (true <= self.thresholds) & true.isfinite()
 
     @property
     def size(self) -> Tensor:
-        return self.mask.sum(1)
+        return self.scores.count(self.thresholds)
 
 
 class SplitConformal:
@@ -54,16 +65,16 @@ class SplitConformal:
         self.thresholds: dict[int, float] = {}
 
     def calibrate(self, scores: Scores) -> SplitConformal:
-        groups, true = self.groups(scores.queries), scores.true
+        groups, order = self.groups(scores.queries).sort(stable=True)
+        keys, counts = groups.unique_consecutive(return_counts=True)
+        per_group = scores.true[order].split(counts.tolist())
         self.thresholds = {
-            group: conformal_quantile(true[groups == group], self.alpha)
-            for group in groups.unique().tolist()
+            group: conformal_quantile(true, self.alpha)
+            for group, true in zip(keys.tolist(), per_group, strict=True)
         }
         return self
 
     def predict(self, scores: Scores) -> PredictionSets:
         groups = self.groups(scores.queries).tolist()
         thresholds = torch.tensor([self.thresholds.get(g, math.inf) for g in groups])
-        values = scores.values
-        mask = (values <= thresholds[:, None]) & values.isfinite()
-        return PredictionSets(mask, scores.queries)
+        return PredictionSets(scores, thresholds)
