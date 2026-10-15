@@ -1,0 +1,56 @@
+# RotatE on FB15k-237: final configuration of LibKGE's authors, from their later LibKGE runs (2020).
+#   published: https://web.informatik.uni-mannheim.de/pi1/libkge-models/fb15k-237-rotate.yaml
+#   model:     models/libkge/fb15k-237-rotate.pt (LibKGE commit not recorded, PyTorch 1.6.0;
+#              epoch 355, validation MRR 0.3400 filtered with test)
+# Values equal the configuration stored in that model (see models/libkge/README.md).
+# Training: negative sampling, binary cross-entropy (bce). Reported test: MRR 0.333, Hits@1 0.240, Hits@3 0.368, Hits@10 0.522.
+#   kge start configs/libkge/fb15k-237-rotate.yaml
+dataset.name: fb15k-237
+import:
+- rotate
+- reciprocal_relations_model
+job.auto_correct: true
+model: reciprocal_relations_model
+reciprocal_relations_model.base_model.relation_embedder.dim: 128
+reciprocal_relations_model.base_model.type: rotate
+train.batch_size: 128
+train.loss: bce
+train.loss_arg: 10.552413063123822
+train.lr_scheduler: ReduceLROnPlateau
+train.lr_scheduler_args.factor: 0.95
+train.lr_scheduler_args.mode: max
+train.lr_scheduler_args.patience: 6
+train.lr_scheduler_args.threshold: 0.0001
+train.max_epochs: 400
+train.optimizer.default.args.lr: 0.22032075441824278
+train.optimizer.default.type: Adagrad
+train.subbatch_auto_tune: true
+train.type: negative_sampling
+entity_ranking.chunk_size: 5000
+entity_ranking.filter_with_test: true
+entity_ranking.metrics_per.relation_type: true
+eval.batch_size: 256
+valid.early_stopping.patience: 10
+valid.early_stopping.threshold.epochs: 50
+valid.early_stopping.threshold.metric_value: 0.05
+valid.every: 5
+valid.metric: mean_reciprocal_rank_filtered_with_test
+lookup_embedder.dim: 256
+lookup_embedder.initialize: xavier_normal_
+lookup_embedder.initialize_args.normal_.mean: 0.0
+lookup_embedder.initialize_args.normal_.std: 2.0846745139962994e-05
+lookup_embedder.initialize_args.uniform_.a: -0.838215168722691
+lookup_embedder.initialize_args.xavier_normal_.gain: 1.0
+lookup_embedder.initialize_args.xavier_uniform_.gain: 1.0
+lookup_embedder.regularize: lp
+lookup_embedder.regularize_args.p: 2
+lookup_embedder.regularize_args.weighted: false
+rotate.entity_embedder.dropout: -0.20997447613626719
+rotate.entity_embedder.regularize_weight: 1.0112561331264489e-06
+rotate.l_norm: 2.0
+rotate.relation_embedder.dropout: -0.17978530656546354
+rotate.relation_embedder.regularize_weight: 9.896801914862831e-18
+negative_sampling.implementation: triple
+negative_sampling.num_samples.o: 292
+negative_sampling.num_samples.p: 0
+negative_sampling.num_samples.s: 25

@@ -1,0 +1,49 @@
+# DistMult on FB15k: final configuration of LibKGE's authors, from their later LibKGE runs (2020).
+#   published: https://web.informatik.uni-mannheim.de/pi1/libkge-models/fb15k-distmult.yaml
+#   model:     models/libkge/fb15k-distmult.pt (LibKGE commit not recorded, PyTorch 1.4.0;
+#              epoch 65, validation MRR 0.8413 filtered with test)
+# Values equal the configuration stored in that model (see models/libkge/README.md).
+# Training: 1vsAll, cross-entropy (kl). Reported test: MRR 0.841, Hits@1 0.806, Hits@3 0.863, Hits@10 0.903.
+#   kge start configs/libkge/fb15k-distmult.yaml
+dataset.name: fb15k
+import:
+- distmult
+- reciprocal_relations_model
+job.auto_correct: true
+model: reciprocal_relations_model
+reciprocal_relations_model.base_model.type: distmult
+train.batch_size: 1024
+train.loss: kl
+train.loss_arg: .nan
+train.lr_scheduler: ReduceLROnPlateau
+train.lr_scheduler_args.factor: 0.95
+train.lr_scheduler_args.mode: max
+train.lr_scheduler_args.patience: 6
+train.lr_scheduler_args.threshold: 0.0001
+train.max_epochs: 400
+train.optimizer.default.args.lr: 0.0005350435963237708
+train.optimizer.default.type: Adam
+train.type: 1vsAll
+entity_ranking.filter_with_test: true
+entity_ranking.metrics_per.relation_type: true
+eval.batch_size: 256
+valid.early_stopping.patience: 10
+valid.early_stopping.threshold.epochs: 50
+valid.early_stopping.threshold.metric_value: 0.05
+valid.every: 5
+valid.metric: mean_reciprocal_rank_filtered_with_test
+lookup_embedder.dim: 512
+lookup_embedder.initialize: xavier_normal_
+lookup_embedder.initialize_args.normal_.mean: 0.0
+lookup_embedder.initialize_args.normal_.std: 0.0001654224493989399
+lookup_embedder.initialize_args.uniform_.a: -0.26784356120861097
+lookup_embedder.initialize_args.xavier_normal_.gain: 1.0
+lookup_embedder.initialize_args.xavier_uniform_.gain: 1.0
+lookup_embedder.regularize: ''
+lookup_embedder.regularize_args.p: 2
+lookup_embedder.regularize_args.weighted: true
+distmult.entity_embedder.dropout: -0.12292058925541527
+distmult.entity_embedder.regularize_weight: 2.338861470483227e-13
+distmult.relation_embedder.dropout: 0.11176361350040642
+distmult.relation_embedder.regularize_weight: 7.854361166235507e-08
+negative_sampling.implementation: batch

@@ -1,0 +1,52 @@
+# RESCAL on FB15k: final configuration of LibKGE's authors, from their later LibKGE runs (2020).
+#   published: https://web.informatik.uni-mannheim.de/pi1/libkge-models/fb15k-rescal.yaml
+#   model:     models/libkge/fb15k-rescal.pt (LibKGE c683e89, PyTorch 1.6.0;
+#              epoch 370, validation MRR 0.6474 filtered with test)
+# Values equal the configuration stored in that model (see models/libkge/README.md).
+# Training: 1vsAll, cross-entropy (kl). Reported test: MRR 0.644, Hits@1 0.544, Hits@3 0.708, Hits@10 0.824.
+# LibKGE's README labels this model NegSamp-kl; its config and training trace say 1vsAll.
+#   kge start configs/libkge/fb15k-rescal.yaml
+dataset.name: fb15k
+import:
+- reciprocal_relations_model
+- rescal
+job.auto_correct: true
+model: rescal
+reciprocal_relations_model.base_model.type: rescal
+train.batch_size: 512
+train.loss: kl
+train.loss_arg: .nan
+train.lr_scheduler: ReduceLROnPlateau
+train.lr_scheduler_args.factor: 0.95
+train.lr_scheduler_args.mode: max
+train.lr_scheduler_args.patience: 7
+train.lr_scheduler_args.threshold: 0.0001
+train.max_epochs: 400
+train.optimizer.default.args.lr: 0.07879169076121043
+train.optimizer.default.type: Adagrad
+train.subbatch_auto_tune: true
+train.type: 1vsAll
+entity_ranking.filter_with_test: true
+entity_ranking.metrics_per.relation_type: true
+eval.batch_size: 256
+valid.early_stopping.patience: 10
+valid.early_stopping.threshold.epochs: 50
+valid.early_stopping.threshold.metric_value: 0.05
+valid.every: 5
+valid.metric: mean_reciprocal_rank_filtered_with_test
+lookup_embedder.dim: 256
+lookup_embedder.initialize: normal_
+lookup_embedder.initialize_args.normal_.mean: 0.0
+lookup_embedder.initialize_args.normal_.std: 7.938452614976156e-05
+lookup_embedder.initialize_args.uniform_.a: -0.9429330404456147
+lookup_embedder.initialize_args.xavier_normal_.gain: 1.0
+lookup_embedder.initialize_args.xavier_uniform_.gain: 1.0
+lookup_embedder.regularize: lp
+lookup_embedder.regularize_args.p: 2
+lookup_embedder.regularize_args.weighted: true
+rescal.entity_embedder.dropout: 0.2974709952250123
+rescal.entity_embedder.regularize_weight: 2.3223879460073926e-06
+rescal.relation_embedder.dim: 65536
+rescal.relation_embedder.dropout: 0.21096340008080006
+rescal.relation_embedder.regularize_weight: 0.0024219821096383987
+negative_sampling.implementation: batch

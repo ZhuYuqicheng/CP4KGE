@@ -1,0 +1,57 @@
+# ConvE on WN18RR: final configuration of LibKGE's authors, from their ICLR 2020 study.
+#   published: https://web.informatik.uni-mannheim.de/pi1/iclr2020-models/wnrr-conve.yaml
+#   model:     models/libkge/wnrr-conve.pt (LibKGE 4b2414a, PyTorch 1.3.0;
+#              epoch 360, validation MRR 0.4450 filtered with test)
+# Values equal the configuration stored in that model (see models/libkge/README.md).
+# Training: KvsAll, cross-entropy (kl). Reported test: MRR 0.442, Hits@1 0.411, Hits@3 0.451, Hits@10 0.504.
+#   kge start configs/libkge/wnrr-conve.yaml
+dataset.name: wnrr
+import:
+- conve
+- reciprocal_relations_model
+job.auto_correct: true
+model: reciprocal_relations_model
+reciprocal_relations_model.base_model.entity_embedder.dim: 512
+reciprocal_relations_model.base_model.relation_embedder.dim: 512
+train.batch_size: 1024
+train.loss: kl
+train.loss_arg: 1.0
+train.lr_scheduler: ReduceLROnPlateau
+train.lr_scheduler_args.factor: 0.95
+train.lr_scheduler_args.mode: max
+train.lr_scheduler_args.patience: 1
+train.lr_scheduler_args.threshold: 0.0001
+train.max_epochs: 400
+train.optimizer.default.args.lr: 0.0016227612377289686
+train.optimizer.default.type: Adam
+train.type: KvsAll
+entity_ranking.filter_with_test: true
+entity_ranking.metrics_per.relation_type: true
+eval.batch_size: 256
+eval.trace_level: example
+valid.early_stopping.patience: 10
+valid.early_stopping.threshold.epochs: 50
+valid.early_stopping.threshold.metric_value: 0.05
+valid.every: 5
+valid.metric: mean_reciprocal_rank_filtered_with_test
+lookup_embedder.dim: 512
+lookup_embedder.initialize: xavier_normal_
+lookup_embedder.initialize_args.normal_.mean: 0.0
+lookup_embedder.initialize_args.normal_.std: 7.846665989552367e-05
+lookup_embedder.initialize_args.uniform_.a: -0.24193942744314623
+lookup_embedder.initialize_args.xavier_normal_.gain: 1.0
+lookup_embedder.initialize_args.xavier_uniform_.gain: 1.0
+lookup_embedder.regularize: lp
+lookup_embedder.regularize_args.p: 1
+lookup_embedder.regularize_args.weighted: false
+conve.convolution_bias: false
+conve.entity_embedder.dropout: -0.03126845036454501
+conve.entity_embedder.regularize_weight: 2.1593057415241093e-08
+conve.feature_map_dropout: 0.3318920246589899
+conve.projection_dropout: 0.1498818066974686
+conve.relation_embedder.dropout: 0.2266267972032251
+conve.relation_embedder.regularize_weight: 1.904578931336991e-10
+conve.round_dim: true
+KvsAll.label_smoothing: -0.17361994040496875
+negative_sampling.implementation: batch
+negative_sampling.num_samples.p: -1
