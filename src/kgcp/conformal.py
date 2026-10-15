@@ -64,5 +64,6 @@ class SplitConformal:
     def predict(self, scores: Scores) -> PredictionSets:
         groups = self.groups(scores.queries).tolist()
         thresholds = torch.tensor([self.thresholds.get(g, math.inf) for g in groups])
-        mask = (scores.values <= thresholds[:, None]) & scores.values.isfinite()
+        values = scores.values
+        mask = (values <= thresholds[:, None]) & values.isfinite()
         return PredictionSets(mask, scores.queries)

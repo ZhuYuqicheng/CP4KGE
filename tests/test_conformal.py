@@ -155,3 +155,4 @@ def test_split(toy):
     assert (len(set(rows[0].tolist())), len(set(rows[1].tolist()))) == (M // 2, 3 * M // 2)
     assert set(rows[0].tolist()) | set(rows[1].tolist()) == set(range(2 * M))
     assert torch.equal(cal.values, scores.values[rows[0]])
+    assert cal.matrix is scores.matrix and test.matrix is scores.matrix  # no copies

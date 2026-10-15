@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 import torch
 from torch import Tensor
 
-from kgcp.data import KnownAnswers, Queries, _Rows
+from kgcp.data import KnownAnswers, Queries
 
 if TYPE_CHECKING:
     from kgcp.backends import KGEModel
@@ -87,19 +87,36 @@ class Rank:
 
 
 @dataclass(frozen=True)
-class Scores(_Rows):
+class Scores:
     """Nonconformity of every candidate entity for each query: [n, E] `values`.
 
-    Filtered candidates score +inf and never enter a prediction set.
+    Filtered candidates score +inf and never enter a prediction set. Subsets of the
+    queries (indexing, `split`) share the score matrix: they hold its rows' indices.
     """
 
     queries: Queries
-    values: Tensor
+    matrix: Tensor  # [N, E] scores of the queries that subsets are taken from
+    rows: Tensor | None = None  # [n] rows of `matrix` with these queries; None: all
+
+    def __len__(self) -> int:
+        return len(self.queries)
+
+    def __getitem__(self, index) -> Scores:
+        return Scores(self.queries[index], self.matrix, self._rows[index])
+
+    @property
+    def _rows(self) -> Tensor:
+        return torch.arange(len(self.matrix)) if self.rows is None else self.rows
+
+    @property
+    def values(self) -> Tensor:
+        """[n, E] scores; a copy for a subset of the queries."""
+        return self.matrix if self.rows is None else self.matrix[self.rows]
 
     @property
     def true(self) -> Tensor:
         """[n] nonconformity of each query's target."""
-        return self.values[torch.arange(len(self)), self.queries.target]
+        return self.matrix[self._rows, self.queries.target]
 
     def split(self, fraction: float = 0.5, generator: torch.Generator | None = None):
         """Random split of the queries, `fraction` of them into the first part.
