@@ -113,6 +113,13 @@ model accuracy), reproduced with
 uv run scripts/conformal.py  # the tuned models in models/
 ```
 
+On the four standard benchmarks, with the 24 KGE models published by LibKGE's authors,
+coverage is 0.90 too. With Softmax, the sets are small on WN18 and FB15k (1.1 to 1.2 and
+19 to 46 entities for five of the six models), but large on their harder versions:
+3,900 to 21,800 of the 40,943 entities on WN18RR, 240 to 310 of the 14,541 on FB15k-237.
+[notebooks/02_benchmarks.ipynb](notebooks/02_benchmarks.ipynb) shows the results
+(`results/conformal/libkge/`) and explains the difference.
+
 Run the tests with `uv run pytest` (the LibKGE tests need the [trained models](#trained-models)).
 
 ## Training KGE models
