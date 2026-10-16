@@ -70,9 +70,8 @@ def test_marginal_coverage(toy, score):
         assert coverage <= expected + 0.01
 
 
-def relation_coverage(scores, groups):
+def relation_coverage(scores, cp):
     """Coverage per relation, pooled over random splits."""
-    cp = kgcp.SplitConformal(ALPHA, groups)
     covered, relation = [], []
     for cal, test in random_splits(scores, 300):
         covered.append(cp.calibrate(cal).predict(test).covered)
@@ -85,9 +84,9 @@ def relation_coverage(scores, groups):
 def test_relation_conditional_coverage(toy, score):
     kg, queries, logits = toy
     scores = kgcp.nonconformity(logits, queries, score, known=kg.known("train"))
-    assert relation_coverage(scores, kgcp.by_relation).min() >= 1 - ALPHA - 0.01
+    assert relation_coverage(scores, kgcp.MondrianConformal(ALPHA)).min() >= 1 - ALPHA - 0.01
     # marginal calibration under-covers the relation with the weakest signal
-    assert relation_coverage(scores, kgcp.marginal).min() < 1 - ALPHA - 0.02
+    assert relation_coverage(scores, kgcp.SplitConformal(ALPHA)).min() < 1 - ALPHA - 0.02
 
 
 def test_too_small_group_gets_full_set(toy):
@@ -104,8 +103,13 @@ def test_set_size_counts_mask(toy, score):
     kg, queries, logits = toy
     scores = kgcp.nonconformity(logits, queries, score, known=kg.known("train"))
     cal, test = scores.split(0.5, torch.Generator().manual_seed(0))
-    for groups in (kgcp.marginal, kgcp.by_relation):  # 30 queries: < 9 per relation
-        sets = kgcp.SplitConformal(ALPHA, groups).calibrate(cal[:30]).predict(test)
+    predictors = [  # 30 queries: < 9 per relation
+        kgcp.SplitConformal(ALPHA),
+        kgcp.MondrianConformal(ALPHA),
+        kgcp.CondKGCP(ALPHA, kgcp.by_relation, gamma=0.5),
+    ]
+    for cp in predictors:
+        sets = cp.calibrate(cal[:30]).predict(test)
         assert torch.equal(sets.size, sets.mask.sum(1))
 
 
@@ -181,3 +185,101 @@ def test_split(toy):
     assert set(rows[0].tolist()) | set(rows[1].tolist()) == set(range(2 * M))
     assert torch.equal(cal.values, scores.values[rows[0]])
     assert cal.matrix is scores.matrix and test.matrix is scores.matrix  # no copies
+
+
+def test_scores_without_matrix(toy):
+    """Coverage and set sizes need only the sorted scores and the targets' scores."""
+    kg, queries, logits = toy
+    full = kgcp.nonconformity(logits, queries, kgcp.APS(), known=kg.known("train"))
+    small = kgcp.nonconformity(
+        logits, queries, kgcp.APS(), known=kg.known("train"), keep_matrix=False
+    )
+    assert small.matrix is None and torch.equal(small.sorted, full.sorted)
+    for scores in (full, small):
+        assert torch.equal(scores.true, full.values[torch.arange(len(queries)), queries.target])
+    cp = kgcp.CondKGCP(ALPHA, kgcp.by_relation, gamma=0.5)
+    sets = [
+        cp.calibrate(cal).predict(test)
+        for cal, test in (s.split(0.5, torch.Generator().manual_seed(0)) for s in (full, small))
+    ]
+    assert torch.equal(sets[0].covered, sets[1].covered)
+    assert torch.equal(sets[0].size, sets[1].size)
+    with pytest.raises(ValueError):
+        _ = sets[1].mask
+
+
+def test_merged_relations():
+    # relations 0 and 3 have enough calibration queries; 1 is closest to 3, 2 and 4 to 0
+    embeddings = torch.tensor([[0.0, 0.0], [5.0, 1.0], [1.0, 1.0], [6.0, 0.0], [0.0, -2.0]])
+    relation = torch.tensor([0, 0, 0, 1, 2, 3, 3, 3, 3])  # relation 4: no calibration queries
+    queries = kgcp.Queries.from_triples(torch.stack([relation, relation, relation], 1))
+    calibration = kgcp.nonconformity(torch.zeros(len(queries), 5), queries, kgcp.Neg())
+    groups = kgcp.MergedRelations(embeddings, min_size=6).fit(calibration)
+    assert groups.table.tolist() == [0, 3, 0, 3, 0]
+    assert torch.equal(groups(queries), groups.table[queries.relation])
+    # no relation with 20 queries: one group, named by the relation with the most
+    groups = kgcp.MergedRelations(embeddings, min_size=20).fit(calibration)
+    assert groups.table.tolist() == [3] * 5
+
+
+def test_mondrian_over_merged_relations(toy):
+    """Without small relations, merged relations are the relations themselves."""
+    kg, queries, logits = toy
+    scores = kgcp.nonconformity(logits, queries, kgcp.Softmax(), known=kg.known("train"))
+    cal, _ = scores.split(0.5, torch.Generator().manual_seed(0))
+    merged = kgcp.MergedRelations(torch.randn(R, 8), min_size=1)
+    by_relation = kgcp.MondrianConformal(ALPHA).calibrate(cal)
+    assert kgcp.MondrianConformal(ALPHA, merged).calibrate(cal).thresholds == by_relation.thresholds
+
+
+def test_top_k_threshold():
+    values = torch.tensor([[0.1, 0.2, 0.2, 0.5, torch.inf]])
+    queries = kgcp.Queries.from_triples(torch.zeros(1, 3, dtype=torch.long))[:1]
+    scores = kgcp.Scores(queries, sorted=values, target_scores=values[:, 0])
+    sizes = [scores.count(scores.top_k_threshold(torch.tensor([k]))).item() for k in range(1, 6)]
+    assert sizes == [1, 1, 3, 4, 4]  # the tied 0.2s both have rank 3
+
+
+def brute_force_ranks(values):
+    """[n, E] rank of every finite candidate: the candidates scoring at most it."""
+    finite = values.isfinite()
+    return ((values[:, None, :] <= values[:, :, None]) & finite[:, None, :]).sum(2)
+
+
+@pytest.mark.parametrize("gamma", [0.0, 0.1, 1.0])
+def test_condkgcp_calibration(toy, gamma):
+    """k(g), eps(g) and the threshold of each relation, and the sets: candidates with a
+    rank at most k(g) and a score at most the threshold. Rounded logits give ties."""
+    kg, queries, logits = toy
+    scores = kgcp.nonconformity(logits.round(), queries, kgcp.Neg(), known=kg.known("train"))
+    cal, test = scores.split(0.5, torch.Generator().manual_seed(0))
+    cp = kgcp.CondKGCP(ALPHA, kgcp.by_relation, gamma).calibrate(cal)
+    ranks = brute_force_ranks(cal.values)[torch.arange(len(cal)), cal.queries.target]
+    for r in range(R):
+        rank, true = ranks[cal.queries.relation == r], cal.true[cal.queries.relation == r]
+        k = next(k for k in range(1, E + 1) if (rank > k).double().mean() < ALPHA)
+        miscoverage = (rank > k).double().mean().item()
+        assert (cp.top_k[r], cp.top_k_miscoverage[r]) == (k, miscoverage)
+        expected = kgcp.conformal_quantile(true, ALPHA - gamma * miscoverage)
+        assert cp.thresholds[r] == expected
+
+    sets = cp.predict(test)
+    relation = test.queries.relation
+    top_k = torch.tensor([cp.top_k[r] for r in relation.tolist()])
+    thresholds = torch.tensor([cp.thresholds[r] for r in relation.tolist()])
+    values = test.values
+    expected = (values <= thresholds[:, None]) & values.isfinite()
+    expected &= brute_force_ranks(values) <= top_k[:, None]
+    assert torch.equal(sets.mask, expected)
+    assert torch.equal(sets.size, expected.sum(1))
+    assert torch.equal(sets.covered, expected[torch.arange(len(test)), test.queries.target])
+
+
+@pytest.mark.parametrize("score", SCORES, ids=lambda s: type(s).__name__)
+def test_condkgcp_relation_conditional_coverage(toy, score):
+    """With gamma = 1, rank calibration keeps the coverage of every group, here of about
+    75 calibration queries (on few queries, eps(g) is optimistic)."""
+    kg, queries, logits = toy
+    scores = kgcp.nonconformity(logits, queries, score, known=kg.known("train"))
+    cp = kgcp.CondKGCP(ALPHA, kgcp.by_relation, gamma=1.0)
+    assert relation_coverage(scores, cp).min() >= 1 - ALPHA - 0.01

@@ -19,6 +19,10 @@ class KGEModel(Protocol):
         """[n, E] logits of all candidate answers: higher = more plausible."""
         ...
 
+    def relation_embeddings(self) -> Tensor:
+        """[R, d] a vector per relation, for groupings by relation similarity."""
+        ...
+
 
 class LibKGE:
     """A trained LibKGE model, from a checkpoint or packaged model file (such as
@@ -77,6 +81,19 @@ class LibKGE:
         if not tail.all():
             logits[~tail] = self.model.score_po(relation[~tail], anchor[~tail])
         return logits
+
+    @torch.no_grad()
+    def relation_embeddings(self) -> Tensor:
+        """[R, d] relation embeddings as the model stores them (e.g. real and imaginary
+        parts for ComplEx, flattened matrices for RESCAL), on the CPU. With reciprocal
+        relations, a relation's embeddings for tail and for head queries, concatenated."""
+        from kge.model import ReciprocalRelationsModel
+
+        num_relations = self.kg.num_relations
+        embeddings = self.model.get_p_embedder().embed_all()
+        if isinstance(self.model, ReciprocalRelationsModel):
+            embeddings = torch.cat([embeddings[:num_relations], embeddings[num_relations:]], 1)
+        return embeddings.reshape(num_relations, -1).float().cpu()
 
 
 def _use_existing_dataset_files(config) -> None:

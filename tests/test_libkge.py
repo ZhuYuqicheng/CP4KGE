@@ -73,6 +73,21 @@ def test_filtered_ranks_match_libkge(pair, seed):
     )
 
 
+@pytest.mark.parametrize(
+    "pair", ["nations-distmult", "nations-complex", "umls-distmult", "umls-complex"]
+)
+def test_relation_embeddings(pair):
+    """A vector per relation; with reciprocal relations, those for tail and head queries."""
+    model = load(pair, 1)
+    num_relations = model.kg.num_relations
+    stored = model.model.get_p_embedder().embed_all().cpu()
+    embeddings = model.relation_embeddings()
+    if len(stored) == 2 * num_relations:  # reciprocal relations: (r, inverse of r)
+        stored = torch.cat([stored[:num_relations], stored[num_relations:]], 1)
+    assert torch.equal(embeddings, stored)
+    assert embeddings.shape[0] == num_relations
+
+
 @pytest.mark.parametrize("name", PUBLISHED)
 def test_published_models_load(name):
     """Checkpoints of older LibKGE versions load, with their dataset, and score."""

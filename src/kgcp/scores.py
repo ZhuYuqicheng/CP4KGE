@@ -7,6 +7,7 @@ given generator.
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -96,32 +97,37 @@ class Scores:
 
     Filtered candidates score +inf and never enter a prediction set. Subsets of the
     queries (indexing, `split`) share the score matrices: they hold their rows' indices.
+    Without `matrix` (half the memory), coverage and set sizes are available, but not
+    `values` or the sets' masks.
     """
 
     queries: Queries
-    matrix: Tensor  # [N, E] scores of the queries that subsets are taken from
-    sorted: Tensor  # [N, E] each row of `matrix` sorted, for set sizes
-    rows: Tensor | None = None  # [n] rows of `matrix` with these queries; None: all
+    sorted: Tensor  # [N, E] each query's scores sorted, for set sizes and ranks
+    target_scores: Tensor  # [N] score of each query's target
+    matrix: Tensor | None = None  # [N, E] scores of the queries that subsets are taken from
+    rows: Tensor | None = None  # [n] rows of the queries that subsets are taken from; None: all
 
     def __len__(self) -> int:
         return len(self.queries)
 
     def __getitem__(self, index) -> Scores:
-        return Scores(self.queries[index], self.matrix, self.sorted, self._rows[index])
+        return dataclasses.replace(self, queries=self.queries[index], rows=self._rows[index])
 
     @property
     def _rows(self) -> Tensor:
-        return torch.arange(len(self.matrix)) if self.rows is None else self.rows
+        return torch.arange(len(self.sorted)) if self.rows is None else self.rows
 
     @property
     def values(self) -> Tensor:
         """[n, E] scores; a copy for a subset of the queries."""
+        if self.matrix is None:
+            raise ValueError("scores kept without their matrix (keep_matrix=False)")
         return self.matrix if self.rows is None else self.matrix[self.rows]
 
     @property
     def true(self) -> Tensor:
         """[n] nonconformity of each query's target."""
-        return self.matrix[self._rows, self.queries.target]
+        return self.target_scores if self.rows is None else self.target_scores[self.rows]
 
     def count(self, thresholds: Tensor) -> Tensor:
         """[n] number of candidates whose score is finite and at most the query's threshold.
@@ -138,6 +144,16 @@ class Scores:
             low = torch.where(active & below, middle + 1, low)
             high = torch.where(active & ~below, middle, high)
         return low
+
+    def top_k_threshold(self, k: Tensor) -> Tensor:
+        """[n] the threshold whose set holds the candidates ranked within the query's `k`:
+        those scoring below its (k + 1)-th smallest score. A candidate's rank is the
+        number of candidates scoring at most it (`count`), so ties count against it.
+        """
+        rows, num_candidates = self._rows, self.sorted.shape[1]
+        above = self.sorted[rows, k.clamp(max=num_candidates - 1)]
+        below = torch.nextafter(above, torch.full_like(above, -torch.inf))
+        return torch.where(k < num_candidates, below, torch.inf)
 
     def split(self, fraction: float = 0.5, generator: torch.Generator | None = None):
         """Random split of the queries, `fraction` of them into the first part.
@@ -159,17 +175,20 @@ def nonconformity(
     known: KnownAnswers | None = None,
     batch_size: int = 1024,
     seed: int = 0,
+    keep_matrix: bool = True,
 ) -> Scores:
     """Score all candidate answers of the queries.
 
     `model` is a KGE model or precomputed [n, E] logits; the scores are computed on its
     device and kept on the CPU. Known answers other than the target are removed from the
-    candidates before scoring.
+    candidates before scoring. Without `keep_matrix`, only the sorted scores and the
+    targets' scores are kept: enough for coverage and set sizes, in half the memory.
     """
     generator = torch.Generator().manual_seed(seed)
     num_candidates = model.shape[1] if isinstance(model, Tensor) else model.kg.num_entities
-    matrix = torch.empty(len(queries), num_candidates)
-    ordered = torch.empty_like(matrix)
+    matrix = torch.empty(len(queries), num_candidates) if keep_matrix else None
+    ordered = torch.empty(len(queries), num_candidates)
+    targets = torch.empty(len(queries))
     for start in range(0, len(queries), batch_size):
         batch = queries[start : start + batch_size]
         if isinstance(model, Tensor):
@@ -182,6 +201,10 @@ def nonconformity(
             filtered = known(batch).to(logits.device)
         scores = score(logits.masked_fill(filtered, -torch.inf), generator)
         scores = scores.masked_fill(filtered, torch.inf)
-        matrix[start : start + batch_size] = scores
+        if matrix is not None:
+            matrix[start : start + batch_size] = scores
         ordered[start : start + batch_size] = scores.sort(1).values
-    return Scores(queries, matrix, ordered)
+        targets[start : start + batch_size] = scores.gather(
+            1, batch.target[:, None].to(scores.device)
+        ).squeeze(1)
+    return Scores(queries, ordered, targets, matrix)

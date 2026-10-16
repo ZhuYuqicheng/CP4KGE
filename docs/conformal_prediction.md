@@ -292,9 +292,37 @@ over the candidates of a query, with p = softmax(x):
 
 **Calibration.** For n calibration scores of the targets, the threshold is the
 ⌈(n+1)(1−α)⌉-th smallest, or +∞ (the full set) if that exceeds n. A query's set holds
-the candidates scoring at most the threshold. With a grouping, each group (relation,
-or direction) gets its own threshold from its own calibration queries (Mondrian CP), so
-coverage holds within every group.
+the candidates scoring at most the threshold (`SplitConformal`). With a grouping, each
+group (relation, or direction) gets its own threshold from its own calibration queries
+(Mondrian CP, `MondrianConformal`), so coverage holds within every group.
+
+**CondKGCP** (`CondKGCP`; Zhu et al., 2025) calibrates per group of relations, in two
+steps:
+
+1. *Merging.* Relations with at least `min_size` calibration queries form a group each;
+   every other relation joins the most similar of them, by the L1 distance of the
+   relation embeddings (`MergedRelations`). With reciprocal relations, a relation's
+   embeddings for tail and head queries are concatenated. Relations without
+   calibration queries are merged too, so they get a threshold. If no relation has
+   `min_size` queries, all form one group.
+2. *Rank calibration* (as RC3P; Shi et al., 2024). In each group g, k(g) is the smallest
+   k such that fewer than a fraction α of the calibration targets rank beyond k; they
+   are a fraction ε(g). A set holds the candidates that rank within k(g) and score at
+   most the conformal quantile at level α − γ·ε(g). A candidate's rank is the number of
+   candidates scoring at most it (ties count against it), so the set is the
+   candidates scoring below a per-query threshold, and set sizes need no extra pass.
+
+Coverage within a group is at least 1 − α − (1 − γ)·ε(g) (Proposition 1 of the paper),
+for ε(g) the group's true top-k(g) miscoverage: at least 1 − α for γ = 1, and a smaller γ
+trades coverage for smaller sets. Here ε(g) is estimated on the group's calibration
+queries, which is optimistic for small groups: with one group per relation, Nations
+(about 3.6 calibration queries per relation) covers 0.87–0.88 at α = 0.1 even with
+γ = 1, while merging (there into a single group) covers 0.91. The two
+ablations of the paper are `CondKGCP(alpha, by_relation, gamma)` (without merging) and
+`MondrianConformal(alpha, MergedRelations(...))` (without rank calibration). The paper
+defines ranks by the logits, without filtering; here they are ranks by the
+nonconformity score among the filtered candidates, the same order for every score up
+to ties.
 
 **Calibration splits.** Test queries, not triples, are split at random. A triple's head
 and tail queries are correlated (correlation 0.59 for Softmax with DistMult on Nations;
@@ -348,6 +376,10 @@ datasets and three models) runs in about 2 minutes on a laptop CPU.
   score instead of the full set. That breaks the guarantee for rare relations.
 - **UCR**: a relation counts as under-covered only if its coverage is strictly below
   1 − α. The earlier code also counted coverage exactly at 1 − α.
+- **CondKGCP**: the earlier code's sets used only the score threshold, without the
+  rank cap k(g) of the paper's Eq. 7, and its calibration ranks compared the raw logits
+  with the target's softmax probability, which is not the target's rank for Softmax or
+  APS. Its k(g) also allowed a top-k miscoverage equal to α (the paper: below α).
 
 ## Reproduce
 
@@ -370,3 +402,8 @@ scores, and that the LibKGE backend reproduces LibKGE's own filtered test MRR ex
   conformal prediction. ICLR, 2021.
 - Angelopoulos, Bates. A gentle introduction to conformal prediction and
   distribution-free uncertainty quantification. 2021.
+- Vovk, Gammerman, Shafer. Algorithmic learning in a random world. Springer, 2005.
+- Shi, Ghosh, Belkhouja, Doppa, Yan. Conformal prediction for class-wise coverage via
+  augmented label rank calibration. NeurIPS, 2024.
+- Zhu, Hernández, He, Ding, Xiong, Kharlamov, Staab. Predicate-conditional conformalized
+  answer sets for knowledge graph embeddings. Findings of ACL, 2025.
