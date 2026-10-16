@@ -86,14 +86,23 @@ scores = kgcp.nonconformity(model, queries, kgcp.APS(), known=kg.known("train", 
 
 # calibrate on half of the test queries, predict answer sets for the other half
 cal, test = scores.split(0.5)
-cp = kgcp.SplitConformal(alpha=0.1, groups=kgcp.by_relation).calibrate(cal)
+cp = kgcp.MondrianConformal(alpha=0.1, groups=kgcp.by_relation).calibrate(cal)
 sets = cp.predict(test)  # sets.mask: [queries, entities] bool
 kgcp.evaluate(sets, alpha=0.1)  # coverage, set size, per-relation coverage gaps, ...
 ```
 
-Scores: `Neg`, `MinMax`, `Softmax`, `APS`, `RAPS`, `Rank` (top-k). Groupings:
-`marginal` (default), `by_relation`, `by_direction`. Another KGE pipeline only needs to
-provide `[queries, entities]` logits: pass them to `nonconformity` instead of a model.
+Scores: `Neg`, `MinMax`, `Softmax`, `APS`, `RAPS`, `Rank` (top-k). Conformal predictors:
+`SplitConformal(alpha)` (marginal), `MondrianConformal(alpha, groups)` with a threshold per
+group (`by_relation`, `by_direction`, or relations merged by embedding similarity,
+`MergedRelations`), and `CondKGCP(alpha, groups, gamma)`, which adds rank calibration:
+
+```python
+merged = kgcp.MergedRelations(model.relation_embeddings(), min_size=50)
+cp = kgcp.CondKGCP(alpha=0.1, groups=merged, gamma=0.01).calibrate(cal)
+```
+
+Another KGE pipeline only needs to provide `[queries, entities]` logits: pass them to
+`nonconformity` instead of a model (and relation embeddings to `MergedRelations`).
 
 At α = 0.1, the tuned models give the following mean set sizes with the Softmax score,
 calibrated on random halves of the test queries (5 seeds × 100 splits; marginal
