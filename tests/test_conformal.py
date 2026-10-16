@@ -98,6 +98,31 @@ def test_too_small_group_gets_full_set(toy):
     assert torch.equal(sets.mask, scores.values.isfinite())
 
 
+@pytest.mark.parametrize("score", SCORES, ids=lambda s: type(s).__name__)
+def test_set_size_counts_mask(toy, score):
+    """Set sizes from the sorted rows, with finite and infinite (too few queries) thresholds."""
+    kg, queries, logits = toy
+    scores = kgcp.nonconformity(logits, queries, score, known=kg.known("train"))
+    cal, test = scores.split(0.5, torch.Generator().manual_seed(0))
+    for groups in (kgcp.marginal, kgcp.by_relation):  # 30 queries: < 9 per relation
+        sets = kgcp.SplitConformal(ALPHA, groups).calibrate(cal[:30]).predict(test)
+        assert torch.equal(sets.size, sets.mask.sum(1))
+
+
+GPU = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else None
+
+
+@pytest.mark.skipif(GPU is None, reason="no GPU")
+@pytest.mark.parametrize("score", SCORES, ids=lambda s: type(s).__name__)
+def test_scores_on_gpu(toy, score):
+    kg, queries, logits = toy
+    cpu = kgcp.nonconformity(logits, queries, score, known=kg.known("train"))
+    gpu = kgcp.nonconformity(logits.to(GPU), queries, score, known=kg.known("train"))
+    assert gpu.matrix.device.type == "cpu"
+    assert torch.allclose(gpu.matrix, cpu.matrix, atol=1e-6)
+    assert torch.allclose(gpu.sorted, cpu.sorted, atol=1e-6)
+
+
 def test_known_answers(toy):
     kg, queries, logits = toy
     known = kg.known("train", "test")  # includes every target
@@ -155,3 +180,4 @@ def test_split(toy):
     assert (len(set(rows[0].tolist())), len(set(rows[1].tolist()))) == (M // 2, 3 * M // 2)
     assert set(rows[0].tolist()) | set(rows[1].tolist()) == set(range(2 * M))
     assert torch.equal(cal.values, scores.values[rows[0]])
+    assert cal.matrix is scores.matrix and test.matrix is scores.matrix  # no copies

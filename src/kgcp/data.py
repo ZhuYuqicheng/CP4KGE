@@ -88,9 +88,14 @@ class KnownAnswers:
 
     def __call__(self, queries: Queries) -> Tensor:
         """[n, E] bool: entity e is a known answer of query i, other than its target."""
-        candidates = torch.arange(self.num_entities)
-        codes = self._key(queries)[:, None] * self.num_entities + candidates
-        known = torch.isin(codes, self._codes)
+        # the codes of a query's answers are key * E + answer: a range of the sorted codes
+        key = self._key(queries) * self.num_entities
+        start = torch.searchsorted(self._codes, key)
+        counts = torch.searchsorted(self._codes, key + self.num_entities) - start
+        rows = torch.repeat_interleave(torch.arange(len(queries)), counts)
+        ranks = torch.arange(len(rows)) - (counts.cumsum(0) - counts)[rows]  # 0, 1, ... per query
+        known = torch.zeros(len(queries), self.num_entities, dtype=torch.bool)
+        known[rows, self._codes[start[rows] + ranks] - key[rows]] = True
         known[torch.arange(len(queries)), queries.target] = False
         return known
 

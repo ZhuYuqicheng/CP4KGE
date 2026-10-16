@@ -45,20 +45,21 @@ def evaluate(
         metrics[f"coverage_{name}"] = covered[mask].mean()
         metrics[f"size_{name}"] = size[mask].mean()
 
-    query_ids = queries.triple * 2 + queries.direction
-    relation_coverage, relation_size = [], []
-    for relation in queries.relation.unique():
-        mask = queries.relation == relation
-        if query_ids[mask].unique().numel() >= min_queries:
-            relation_coverage.append(covered[mask].mean().item())
-            relation_size.append(size[mask].mean().item())
-    gaps = (1 - alpha) - torch.tensor(relation_coverage, dtype=torch.float64)
+    _, relation = queries.relation.unique(return_inverse=True)  # 0, 1, ... per relation
+    query = queries.triple * 2 + queries.direction
+    stride = query.max() + 1
+    distinct = torch.bincount((relation * stride + query).unique() // stride)
+    keep = distinct >= min_queries
+    num_queries = torch.bincount(relation).double()
+    relation_coverage = (torch.bincount(relation, weights=covered) / num_queries)[keep]
+    relation_size = (torch.bincount(relation, weights=size) / num_queries)[keep]
+    gaps = (1 - alpha) - relation_coverage
     under = gaps > 1e-12  # tolerance: coverage may equal 1 - alpha up to rounding
     metrics |= {
         "covgap": gaps.abs().mean(),
         "ucg": gaps[under].mean() if under.any() else torch.tensor(0.0),
         "ucr": under.double().mean(),
-        "cond_size": torch.tensor(relation_size, dtype=torch.float64).mean(),
-        "relations": torch.tensor(len(relation_coverage)),
+        "cond_size": relation_size.mean(),
+        "relations": keep.sum(),
     }
     return {name: value.item() for name, value in metrics.items()}

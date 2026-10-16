@@ -1,17 +1,20 @@
-"""Conformal prediction experiments with the tuned models in models/ (scripts/tune.py).
+"""Conformal prediction experiments with trained LibKGE models.
 
-For every trained model (dataset x model x seed) and score function, scores all test
-queries once, then calibrates on random halves of the test queries and evaluates on the
-other halves (--calibration test; each seed gets its own splits, the same for all models).
-With --calibration valid, it calibrates on the validation split and evaluates on the whole
-test split, as in earlier work. Known answers are filtered from splits outside the
-calibration and evaluation data: train + valid, or train only.
+For every model and score function, scores all test queries once, then calibrates on
+random halves of the test queries and evaluates on the other halves (--calibration test;
+each seed gets its own splits, the same for all models). With --calibration valid, it
+calibrates on the validation split and evaluates on the whole test split, as in earlier
+work. Known answers are filtered from splits outside the calibration and evaluation data:
+train + valid, or train only. Each model runs once per split of the data; the score
+functions run on its device.
 
-    python scripts/conformal.py --datasets nations umls kinship --models distmult complex rescal
+    python scripts/conformal.py  # the tuned models, models/<dataset>-<model>/seed<N>.pt
+    python scripts/conformal.py models/libkge/*.pt --out results/conformal/libkge
 
-Writes one row per (seed, score, grouping, alpha) to
-results/conformal/<dataset>-<model>-<calibration>.csv, with metrics pooled over the
-splits, and prints a summary (mean ± std over seeds).
+A model is a folder of seed<N>.pt files, named by the folder, or a single file (seed 0),
+named by the file; names are <dataset>-<model>. Writes one row per (seed, score, grouping,
+alpha) to <out>/<name>-<calibration>.csv, with metrics pooled over the splits, and prints
+a summary (mean ± std over seeds).
 """
 
 import argparse
@@ -21,10 +24,16 @@ import time
 from pathlib import Path
 
 import torch
+from tqdm import tqdm
 
 import kgcp
 
 ROOT = Path(__file__).resolve().parents[1]
+TUNED = [
+    ROOT / "models" / f"{dataset}-{model}"
+    for dataset in ("nations", "umls", "kinship")
+    for model in ("distmult", "complex", "rescal")
+]
 SCORES = {
     "neg": kgcp.Neg(),
     "minmax": kgcp.MinMax(),
@@ -37,56 +46,79 @@ GROUPS = {"marginal": kgcp.marginal, "relation": kgcp.by_relation, "direction": 
 SUMMARY = ["coverage", "size", "singleton", "covgap", "ucr", "cond_size"]
 
 
-def model_files(dataset: str, model: str, seeds: list[int] | None) -> list[Path]:
-    """The trained models of the selected configuration, models/<dataset>-<model>/seed<N>.pt."""
-    folder = ROOT / "models" / f"{dataset}-{model}"
-    files = sorted(folder.glob("seed*.pt"))
+def model_files(path: Path, seeds: list[int] | None) -> list[tuple[Path, int]]:
+    """(file, seed) of a model: the seed<N>.pt files of a folder, or a single file."""
+    if path.is_file():
+        return [(path, 0)]
+    files = sorted(path.glob("seed*.pt"))
     if not files:
-        raise FileNotFoundError(f"no models in {folder} (see README.md#trained-models)")
-    return [f for f in files if seeds is None or int(f.stem[4:]) in seeds]
+        raise FileNotFoundError(f"no models in {path} (see README.md#trained-models)")
+    return [(f, int(f.stem[4:])) for f in files if seeds is None or int(f.stem[4:]) in seeds]
 
 
-def calibration_splits(model, score, calibration: str, num_splits: int, seed: int) -> list:
-    """(calibration, evaluation) scores. `seed` makes splits differ between models."""
-    kg = model.kg
-    test = kgcp.Queries.from_triples(kg.split("test"))
-    if calibration == "test":
-        known = kg.known("train", "valid")
-        scores = kgcp.nonconformity(model, test, score, known, seed=seed)
-        seeds = range(seed * num_splits, (seed + 1) * num_splits)
-        return [scores.split(0.5, torch.Generator().manual_seed(s)) for s in seeds]
-    valid = kgcp.Queries.from_triples(kg.split("valid"))
-    known = kg.known("train")
-    return [
-        (
-            kgcp.nonconformity(model, valid, score, known, seed=seed),
-            kgcp.nonconformity(model, test, score, known, seed=seed),
-        )
-    ]
+@torch.no_grad()
+def logits(model: kgcp.LibKGE, queries: kgcp.Queries, batch_size: int) -> torch.Tensor:
+    """[n, E] logits of the queries, on the model's device."""
+    out = torch.empty(len(queries), model.kg.num_entities, device=model.device)
+    for start in range(0, len(queries), batch_size):
+        out[start : start + batch_size] = model.score(queries[start : start + batch_size])
+    return out
 
 
-def run(dataset: str, model_name: str, args) -> list[dict]:
+def evaluate(score_split, score, seed: int, args) -> list[dict]:
+    """Rows of one score function: per alpha and grouping, metrics pooled over the splits.
+
+    `score_split(split, score)` scores the queries of a split. `seed` makes splits differ
+    between models.
+    """
+    if args.calibration == "test":
+        scores = score_split("test", score)
+        seeds = range(seed * args.splits, (seed + 1) * args.splits)
+        splits = [scores.split(0.5, torch.Generator().manual_seed(s)) for s in seeds]
+    else:
+        splits = [(score_split("valid", score), score_split("test", score))]
     rows = []
-    for file in model_files(dataset, model_name, args.seeds):
-        model, seed = kgcp.LibKGE(file, device=args.device), int(file.stem[4:])
-        for score_name, score in SCORES.items():
-            splits = calibration_splits(model, score, args.calibration, args.splits, seed)
-            for alpha in args.alphas:
-                for groups_name, groups in GROUPS.items():
-                    cp = kgcp.SplitConformal(alpha, groups)
-                    sets = (cp.calibrate(cal).predict(test) for cal, test in splits)
-                    rows.append(
-                        {
-                            "dataset": dataset,
-                            "model": model_name,
-                            "seed": seed,
-                            "calibration": args.calibration,
-                            "score": score_name,
-                            "groups": groups_name,
-                            "alpha": alpha,
-                            **kgcp.evaluate(sets, alpha, args.min_queries),
-                        }
-                    )
+    for alpha in args.alphas:
+        for groups_name, groups in GROUPS.items():
+            cp = kgcp.SplitConformal(alpha, groups)
+            sets = (cp.calibrate(cal).predict(test) for cal, test in splits)
+            metrics = kgcp.evaluate(sets, alpha, args.min_queries)
+            rows.append({"groups": groups_name, "alpha": alpha} | metrics)
+    return rows
+
+
+def evaluate_model(file: Path, seed: int, args, bar: tqdm) -> list[dict]:
+    """Rows of a trained model: per score function, alpha and grouping."""
+    model = kgcp.LibKGE(file, device=args.device)
+    kg = model.kg
+    if args.calibration == "test":
+        known, splits = kg.known("train", "valid"), ["test"]
+    else:
+        known, splits = kg.known("train"), ["valid", "test"]
+    data = {}  # the model runs once per split
+    for split in splits:
+        queries = kgcp.Queries.from_triples(kg.split(split))
+        data[split] = queries, logits(model, queries, args.batch_size)
+
+    def score_split(split, score):
+        queries, split_logits = data[split]
+        return kgcp.nonconformity(split_logits, queries, score, known, seed=seed)
+
+    rows = []
+    for name, score in SCORES.items():
+        rows += [{"score": name} | row for row in evaluate(score_split, score, seed, args)]
+        bar.update()
+    return rows
+
+
+def run(path: Path, files: list[tuple[Path, int]], args, bar: tqdm) -> list[dict]:
+    name = path.stem if path.is_file() else path.name
+    dataset, model = name.rsplit("-", 1)
+    rows = []
+    for file, seed in files:
+        bar.set_postfix_str(f"{name} seed {seed}")
+        key = {"dataset": dataset, "model": model, "seed": seed, "calibration": args.calibration}
+        rows += [key | row for row in evaluate_model(file, seed, args, bar)]
     return rows
 
 
@@ -103,37 +135,42 @@ def summarize(rows: list[dict]) -> str:
         cells = []
         for metric in SUMMARY:
             values = [r[metric] for r in selected]
-            std = statistics.stdev(values) if len(values) > 1 else 0.0
-            cells.append(f"{statistics.mean(values):.3f} ± {std:.3f}")
+            cell = f"{statistics.mean(values):.3f}"
+            if len(values) > 1:
+                cell += f" ± {statistics.stdev(values):.3f}"
+            cells.append(cell)
         lines.append(f"| {alpha} | {groups} | {score} | " + " | ".join(cells) + " |")
     return "\n".join(lines)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--datasets", nargs="+", default=["nations", "umls", "kinship"])
-    parser.add_argument("--models", nargs="+", default=["distmult", "complex", "rescal"])
+    parser.add_argument("models", nargs="*", type=Path, default=TUNED, help="folders or files")
     parser.add_argument("--seeds", nargs="+", type=int, help="model seeds (default: all)")
     parser.add_argument("--calibration", choices=["test", "valid"], default="test")
     parser.add_argument("--splits", type=int, default=100, help="random calibration splits")
     parser.add_argument("--alphas", nargs="+", type=float, default=[0.05, 0.1, 0.2])
     parser.add_argument("--min-queries", type=int, default=10, help="for relation metrics")
     parser.add_argument("--device", default="cpu", help="cpu, cuda, mps or auto")
+    parser.add_argument("--batch-size", type=int, default=1024, help="queries per model call")
     parser.add_argument("--out", type=Path, default=ROOT / "results/conformal")
     args = parser.parse_args()
 
     args.out.mkdir(parents=True, exist_ok=True)
-    for dataset in args.datasets:
-        for model_name in args.models:
+    models = {path: model_files(path, args.seeds) for path in args.models}
+    total = len(SCORES) * sum(map(len, models.values()))
+    with tqdm(total=total, unit="score", smoothing=0) as bar:  # per model and score function
+        for path, files in models.items():
             start = time.time()
-            rows = run(dataset, model_name, args)
-            path = args.out / f"{dataset}-{model_name}-{args.calibration}.csv"
-            with open(path, "w", newline="") as f:
+            rows = run(path, files, args, bar)
+            name = f"{rows[0]['dataset']}-{rows[0]['model']}"
+            out = args.out / f"{name}-{args.calibration}.csv"
+            with open(out, "w", newline="") as f:
                 writer = csv.DictWriter(f, fieldnames=list(rows[0]))
                 writer.writeheader()
                 writer.writerows(rows)
-            print(f"## {dataset} {model_name} ({time.time() - start:.0f} s, {path})\n")
-            print(summarize(rows) + "\n", flush=True)
+            tqdm.write(f"## {name} ({time.time() - start:.0f} s, {out})\n")
+            tqdm.write(summarize(rows) + "\n")
 
 
 if __name__ == "__main__":

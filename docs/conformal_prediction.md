@@ -352,8 +352,8 @@ datasets and three models) runs in about 2 minutes on a laptop CPU.
 ## Reproduce
 
 ```bash
-uv run scripts/conformal.py --datasets nations umls kinship
-uv run scripts/conformal.py --datasets nations umls kinship --calibration valid
+uv run scripts/conformal.py  # the tuned models in models/
+uv run scripts/conformal.py --calibration valid
 uv run pytest
 ```
 
