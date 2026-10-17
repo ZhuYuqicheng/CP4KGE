@@ -1,0 +1,570 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CondKGCP Search</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&display=swap">
+<style>
+/* Layout: sticky case picker; the four steps of the rule with their counts; the Pareto front and the phi x gamma grid side by side, linked on hover. */
+:root {
+  --bg: #f4f7f7;
+  --panel: #ffffff;
+  --ink: #14222a;
+  --muted: #5a6b73;
+  --line: #d6dfe2;
+  --faint: #e9eff0;
+  --accent: #4b45d6;
+  --accent-soft: rgba(75, 69, 214, 0.12);
+  --dominated: #9aa8ae;
+  --warn: #b0560c;
+  --ref: #14222a;
+  --heat-lo: #0b625b;
+  --heat-hi: #edf1ea;
+  --on-dark: #f3f7f8;
+  --on-light: #12201f;
+  --shadow: rgba(10, 20, 25, 0.16);
+  --font-display: "Source Serif 4", "Iowan Old Style", Georgia, serif;
+  --font-body: "IBM Plex Sans", -apple-system, "Segoe UI", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d1315; --panel: #141c1f; --ink: #e1e9eb; --muted: #92a3aa; --line: #283439; --faint: #1a2428;
+    --accent: #a8aefc; --accent-soft: rgba(168, 174, 252, 0.15); --dominated: #5d6d74; --warn: #f2a14a; --ref: #e1e9eb;
+    --heat-lo: #3fcfbd; --heat-hi: #1a2529; --on-dark: #f3f7f8; --on-light: #0d1a19; --shadow: rgba(0, 0, 0, 0.5); color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d1315; --panel: #141c1f; --ink: #e1e9eb; --muted: #92a3aa; --line: #283439; --faint: #1a2428;
+  --accent: #a8aefc; --accent-soft: rgba(168, 174, 252, 0.15); --dominated: #5d6d74; --warn: #f2a14a; --ref: #e1e9eb;
+  --heat-lo: #3fcfbd; --heat-hi: #1a2529; --on-dark: #f3f7f8; --on-light: #0d1a19; --shadow: rgba(0, 0, 0, 0.5); color-scheme: dark;
+}
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 14px; line-height: 1.5; }
+.page { max-width: 1320px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 26px 48px; display: grid; gap: 18px; }
+h1, h2 { font-family: var(--font-display); font-weight: 600; margin: 0; text-wrap: balance; letter-spacing: -0.01em; }
+h1 { font-size: 30px; line-height: 1.15; }
+h2 { font-size: 18px; line-height: 1.3; }
+p { margin: 0; max-width: 80ch; }
+.muted { color: var(--muted); }
+.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.eyebrow { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; }
+header { display: grid; gap: 8px; }
+
+.controls { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); padding-block: 10px; border-bottom: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 10px 20px; align-items: center; }
+.control { display: flex; align-items: center; gap: 8px; }
+.control .label, .control label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; }
+.seg { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--panel); }
+.seg button { font: inherit; font-size: 13px; border: 0; background: transparent; color: var(--ink); padding: 4px 11px; cursor: pointer; border-right: 1px solid var(--line); }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+.seg button:disabled { opacity: 0.45; cursor: not-allowed; }
+input[type="range"] { width: 130px; accent-color: var(--accent); }
+select { font: inherit; font-size: 13px; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.steps li { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: grid; gap: 2px; align-content: start; min-width: 0; }
+.steps .n { font-family: var(--font-mono); font-size: 11px; color: var(--accent); font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; }
+.steps .big { font-family: var(--font-mono); font-size: 20px; font-weight: 500; line-height: 1.3; }
+.steps .big.pick { color: var(--accent); }
+.steps .big.warn { color: var(--warn); }
+.steps .what { font-size: 12.5px; color: var(--muted); }
+
+.figures { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 14px; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; display: grid; gap: 8px; align-content: start; min-width: 0; }
+.panel-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.caption { font-size: 12.5px; color: var(--muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: var(--muted); align-items: center; }
+.legend .item { display: inline-flex; align-items: center; gap: 6px; }
+.legend svg { overflow: visible; }
+.chart svg { display: block; overflow: visible; }
+.chart text { fill: var(--muted); font-family: var(--font-mono); font-size: 10.5px; }
+.chart .axis path, .chart .axis line { stroke: var(--line); }
+.chart .gridline { stroke: var(--faint); }
+.chart .title { fill: var(--ink); font-family: var(--font-body); font-size: 12px; }
+.chart .flabel { fill: var(--accent); font-size: 11px; }
+.tip { position: fixed; z-index: 30; pointer-events: none; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-size: 12px; box-shadow: 0 6px 24px var(--shadow); max-width: 290px; }
+.tip dl { display: grid; grid-template-columns: auto 1fr; gap: 1px 10px; margin: 4px 0 0; }
+.tip dt { color: var(--muted); }
+.tip dd { margin: 0; font-family: var(--font-mono); }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+th, td { padding: 5px 9px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { font-weight: 600; color: var(--muted); font-size: 11.5px; }
+thead tr:first-child th { color: var(--ink); font-size: 12px; border-bottom: 0; text-align: center; }
+th.group, td.group { border-left: 1px solid var(--line); }
+th:first-child, td:first-child, th:nth-child(2), td:nth-child(2) { text-align: left; }
+td { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+td.best { font-weight: 600; color: var(--accent); }
+td.fallback { color: var(--warn); }
+tbody tr { cursor: pointer; }
+tbody tr:hover td { background: var(--faint); }
+tbody tr[aria-current="true"] td { background: var(--accent-soft); }
+tbody tr:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+footer { font-size: 12.5px; color: var(--muted); display: grid; gap: 6px; border-top: 1px solid var(--line); padding-top: 14px; }
+.badge { display: inline-block; font-size: 11px; font-family: var(--font-mono); border: 1px solid currentColor; border-radius: 4px; padding: 0 6px; }
+@media (max-width: 1040px) {
+  .figures { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 700px) {
+  .steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .controls { position: static; }
+  h1 { font-size: 25px; }
+}
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <div class="eyebrow">CondKGCP hyperparameter search</div>
+    <h1>CondKGCP search</h1>
+    <p class="muted" id="intro"></p>
+  </header>
+
+  <nav class="controls" aria-label="Case">
+    <div class="control"><span class="label">Data</span><div class="seg" id="c-ds"></div></div>
+    <div class="control"><span class="label">Model</span><div class="seg" id="c-model"></div></div>
+    <div class="control"><span class="label">Score</span><div class="seg" id="c-score"></div></div>
+    <div class="control"><span class="label">α</span><div class="seg" id="c-alpha"></div></div>
+    <div class="control"><span class="label">Show</span><div class="seg" id="c-split"></div></div>
+    <div class="control"><label for="c-tol">δ</label><input type="range" id="c-tol" min="0" max="0.03" step="0.001"><span class="num" id="c-tol-val"></span></div>
+  </nav>
+
+  <ol class="steps" id="steps" aria-label="The selection rule"></ol>
+
+  <div class="figures">
+    <section class="panel" aria-labelledby="pareto-title">
+      <div class="panel-head"><h2 id="pareto-title">Pareto front</h2><span class="caption">lower is better on both axes</span></div>
+      <div class="chart" id="pareto"></div>
+      <div class="legend" id="pareto-legend"></div>
+    </section>
+    <section class="panel" aria-labelledby="grid-title">
+      <div class="panel-head">
+        <h2 id="grid-title">The same settings by φ and γ</h2>
+        <label class="legend" for="c-color">Colour by <select id="c-color"></select></label>
+      </div>
+      <div class="chart" id="grid"></div>
+      <div class="legend" id="grid-legend"></div>
+      <p class="caption" id="grid-caption"></p>
+    </section>
+  </div>
+
+  <section class="panel" aria-labelledby="results-title">
+    <div class="panel-head"><h2 id="results-title">Results on test</h2><span class="caption" id="results-note"></span></div>
+    <div class="table-wrap"><table id="results"></table></div>
+    <p class="caption" id="results-caption"></p>
+  </section>
+
+  <footer id="footer"></footer>
+</div>
+<div class="tip" id="tip" hidden></div>
+
+<script id="data" type="application/json">__DATA__</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<script>
+(() => {
+  const DATA = JSON.parse(document.getElementById("data").textContent);
+  const SCORES = ["neg", "minmax", "softmax", "aps", "raps", "rank"];
+  const SCORE_LABEL = { neg: "Neg", minmax: "MinMax", softmax: "Softmax", aps: "APS", raps: "RAPS", rank: "Rank" };
+  const ALPHAS = [0.05, 0.1, 0.2];
+  const GAMMAS = DATA.gammas;
+  const fmtG = d3.format("~g"), f3 = d3.format(".3f"), f4 = d3.format(".4f");
+  const size = (v) => (v < 10 ? d3.format(".2~f")(v) : v < 1000 ? d3.format(".0f")(v) : d3.format(",.0f")(v));
+  const esc = (s) => String(s).replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch]);
+  const setting = (r) => (r.family === "condkgcp" ? `φ ${r.min_size}, γ ${fmtG(r.gamma)}` : r.family === "mondrian" ? "Mondrian" : "Marginal");
+  const COLOR_BY = {
+    covgap: { label: "CovGap", fmt: f3, log: true },
+    cond_size: { label: "cond. set size", fmt: size, log: true },
+    coverage: { label: "coverage", fmt: f3, log: false },
+    size: { label: "mean set size", fmt: size, log: true },
+  };
+
+  // ---- data ----
+  const index = new Map();
+  for (const [ds, d] of Object.entries(DATA.models)) {
+    for (const a of d.rows) {
+      const r = Object.fromEntries(DATA.cols.map((c, i) => [c, a[i]]));
+      r.key = `${r.family}|${r.min_size ?? ""}|${r.gamma ?? ""}`;
+      const k = `${ds}|${r.split}|${r.score}|${r.alpha}`;
+      if (!index.has(k)) index.set(k, []);
+      index.get(k).push(r);
+    }
+  }
+  const rowsOf = (ds, split, score, alpha) => index.get(`${ds}|${split}|${score}|${alpha}`) || [];
+  const hasSplit = (ds, split) => SCORES.some((s) => ALPHAS.some((a) => rowsOf(ds, split, s, a).length));
+
+  // Settings that no other setting beats on both CovGap and cond. set size (lower is better).
+  function paretoFront(rows) {
+    const sorted = [...rows].sort((a, b) => a.covgap - b.covgap || a.cond_size - b.cond_size);
+    const front = [];
+    let smallest = Infinity;
+    for (const r of sorted) if (r.cond_size < smallest) { front.push(r); smallest = r.cond_size; }
+    return front;
+  }
+
+  // The selection rule of scripts/conformal.py (best), for CondKGCP.
+  function analyse(ds, split, score, alpha, tol) {
+    const rows = rowsOf(ds, split, score, alpha);
+    if (!rows.length) return null;
+    const marginal = rows.find((r) => r.family === "marginal");
+    const mondrian = rows.find((r) => r.family === "mondrian");
+    const settings = rows.filter((r) => r.family === "condkgcp");
+    const floor = Math.min(1 - alpha, marginal.coverage) - 1e-12;
+    const feasible = settings.filter((r) => r.coverage >= floor);
+    const front = paretoFront(feasible);
+    const onFront = new Set(front.map((r) => r.key));
+    let lowest = null, band = [], chosen;
+    if (feasible.length) {
+      lowest = d3.min(feasible, (r) => r.covgap);
+      band = feasible.filter((r) => r.covgap <= lowest + tol + 1e-12);
+      chosen = band.reduce((p, q) => (q.cond_size < p.cond_size || (q.cond_size === p.cond_size && q.size < p.size) ? q : p));
+    } else {
+      chosen = settings.reduce((p, q) => (q.coverage > p.coverage ? q : p));
+    }
+    const inBand = new Set(band.map((r) => r.key));
+    return { ds, split, score, alpha, rows, settings, marginal, mondrian, floor, feasible, front, onFront, lowest, band, inBand, chosen, fallback: !feasible.length, byKey: new Map(rows.map((r) => [r.key, r])) };
+  }
+
+  // The page must reproduce the run's picks at the run's delta.
+  let checked = 0, agree = 0;
+  for (const ds of Object.keys(DATA.models)) for (const s of SCORES) for (const a of ALPHAS) {
+    const an = analyse(ds, "valid", s, a, DATA.tolerance);
+    if (!an) continue;
+    checked += 1;
+    const run = an.settings.find((r) => r.selected === true);
+    if (run && run.key === an.chosen.key) agree += 1;
+  }
+
+  // ---- state ----
+  const state = { ds: Object.keys(DATA.models)[0], score: "softmax", alpha: 0.1, split: "valid", tol: DATA.tolerance, color: "covgap" };
+  try { Object.assign(state, JSON.parse(localStorage.getItem("condkgcp-search") || "{}")); } catch (e) { /* no storage */ }
+  if (!DATA.models[state.ds]) state.ds = Object.keys(DATA.models)[0];
+  const save = () => { try { localStorage.setItem("condkgcp-search", JSON.stringify(state)); } catch (e) { /* no storage */ } };
+
+  const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const colors = () => Object.fromEntries(["accent", "accent-soft", "dominated", "muted", "panel", "warn", "ref", "line", "ink", "faint", "heat-lo", "heat-hi", "on-dark", "on-light"].map((n) => [n, css(`--${n}`)]));
+
+  // ---- tooltip and the link between the two diagrams ----
+  const tip = document.getElementById("tip");
+  const links = []; // per diagram: {pos: key -> position, mark, place}
+  function kind(an, r) {
+    if (r.family !== "condkgcp") return "reference";
+    if (r.coverage < an.floor) return "below the coverage floor";
+    return an.onFront.has(r.key) ? (an.inBand.has(r.key) ? "on the front, in the band" : "on the front") : "beaten on both metrics";
+  }
+  function hover(ev, an, valAn, r) {
+    const tags = [];
+    if (an.split === "valid" && r.key === an.chosen.key) tags.push("the pick");
+    if (an.split === "test" && r.key === valAn.chosen.key) tags.push("picked on validation");
+    tip.innerHTML = `<b>${esc(setting(r))}</b><br><span class="muted">${esc([kind(an, r), ...tags].join(" · "))}</span>
+      <dl><dt>coverage</dt><dd>${f3(r.coverage)}</dd><dt>CovGap</dt><dd>${f4(r.covgap)}</dd><dt>cond. size</dt><dd>${size(r.cond_size)}</dd><dt>mean size</dt><dd>${size(r.size)}</dd></dl>`;
+    tip.hidden = false;
+    const w = tip.offsetWidth, h = tip.offsetHeight;
+    let x = ev.clientX + 14, y = ev.clientY + 14;
+    if (x + w > innerWidth - 8) x = ev.clientX - w - 14;
+    if (y + h > innerHeight - 8) y = ev.clientY - h - 14;
+    tip.style.left = `${Math.max(8, x)}px`;
+    tip.style.top = `${Math.max(8, y)}px`;
+    for (const l of links) {
+      const p = l.pos.get(r.key);
+      if (p) l.place(l.mark.attr("display", null), p); else l.mark.attr("display", "none");
+    }
+  }
+  function unhover() {
+    tip.hidden = true;
+    for (const l of links) l.mark.attr("display", "none");
+  }
+
+  // ---- diagram 1: the Pareto front ----
+  function drawPareto(an, valAn, c) {
+    const el = document.getElementById("pareto");
+    const W = el.clientWidth, H = Math.round(Math.max(320, Math.min(470, W * 0.72)));
+    const m = { l: 58, r: 18, t: 26, b: 42 };
+    el.innerHTML = "";
+    const svg = d3.select(el).append("svg").attr("viewBox", `0 0 ${W} ${H}`).attr("width", "100%").attr("height", H).attr("role", "img")
+      .attr("aria-label", "CovGap against conditional set size for every setting");
+    const x = d3.scaleLog().domain([d3.min(an.rows, (r) => r.covgap) / 1.15, d3.max(an.rows, (r) => r.covgap) * 1.15]).range([m.l, W - m.r]);
+    const y = d3.scaleLog().domain([d3.min(an.rows, (r) => r.cond_size) / 1.3, d3.max(an.rows, (r) => r.cond_size) * 1.3]).range([H - m.b, m.t]);
+    const ax = svg.append("g").attr("class", "axis").attr("transform", `translate(0,${H - m.b})`).call(d3.axisBottom(x).ticks(Math.max(2, Math.floor(W / 110)), ".2~f").tickSizeOuter(0));
+    const ay = svg.append("g").attr("class", "axis").attr("transform", `translate(${m.l},0)`).call(d3.axisLeft(y).ticks(6, "~s").tickSizeOuter(0));
+    ax.selectAll(".tick line").clone().attr("class", "gridline").attr("y2", -(H - m.t - m.b));
+    ay.selectAll(".tick line").clone().attr("class", "gridline").attr("x2", W - m.l - m.r);
+    svg.append("text").attr("class", "title").attr("x", W - m.r).attr("y", H - 6).attr("text-anchor", "end").text("CovGap → (log)");
+    svg.append("text").attr("class", "title").attr("x", m.l - 52).attr("y", 12).text("cond. set size ↑ (log)");
+
+    if (an.lowest != null) {
+      const x0 = x(an.lowest), x1 = x(an.lowest + state.tol);
+      svg.append("rect").attr("x", x0).attr("y", m.t).attr("width", Math.max(1.5, x1 - x0)).attr("height", H - m.t - m.b).attr("fill", c["accent-soft"]);
+      svg.append("line").attr("x1", x0).attr("x2", x0).attr("y1", m.t).attr("y2", H - m.b).attr("stroke", c.accent).attr("stroke-dasharray", "3 3");
+    }
+    const below = an.settings.filter((r) => r.coverage < an.floor);
+    const beaten = an.feasible.filter((r) => !an.onFront.has(r.key));
+    svg.append("g").selectAll("circle").data(below).join("circle").attr("cx", (r) => x(r.covgap)).attr("cy", (r) => y(r.cond_size)).attr("r", 4.4)
+      .attr("fill", "none").attr("stroke", c.dominated).attr("stroke-width", 1.1);
+    svg.append("g").selectAll("circle").data(beaten).join("circle").attr("cx", (r) => x(r.covgap)).attr("cy", (r) => y(r.cond_size)).attr("r", 4.4)
+      .attr("fill", c.dominated).attr("opacity", 0.8);
+    if (an.front.length) {
+      svg.append("path").attr("d", d3.line().curve(d3.curveStepAfter).x((r) => x(r.covgap)).y((r) => y(r.cond_size))(an.front))
+        .attr("fill", "none").attr("stroke", c.accent).attr("stroke-width", 2);
+    }
+    svg.append("g").selectAll("circle").data(an.front).join("circle").attr("cx", (r) => x(r.covgap)).attr("cy", (r) => y(r.cond_size)).attr("r", 5)
+      .attr("fill", c.accent).attr("stroke", c.panel).attr("stroke-width", 1);
+    for (const r of [an.mondrian, an.marginal]) {
+      svg.append("path").attr("transform", `translate(${x(r.covgap)},${y(r.cond_size)})`)
+        .attr("d", d3.symbol(r.family === "mondrian" ? d3.symbolDiamond : d3.symbolCross, 110)()).attr("fill", c.ref).attr("stroke", c.panel).attr("stroke-width", 0.8);
+    }
+    const pick = an.split === "valid" ? an.chosen : an.byKey.get(valAn.chosen.key);
+    const fallback = an.split === "valid" && an.fallback;
+    svg.append("circle").attr("cx", x(pick.covgap)).attr("cy", y(pick.cond_size)).attr("r", 10).attr("fill", "none")
+      .attr("stroke", fallback ? c.warn : c.accent).attr("stroke-width", 2.6).attr("stroke-dasharray", fallback ? "3 2" : null);
+
+    // labels of the front and the references, each at the first free spot around its point
+    const placed = [];
+    const free = (b) => b.x0 >= 0 && b.x1 <= W && b.y0 >= 0 && b.y1 <= H && placed.every((q) => b.x1 < q.x0 || b.x0 > q.x1 || b.y1 < q.y0 || b.y0 > q.y1);
+    const label = (r, text, cls) => {
+      const px = x(r.covgap), py = y(r.cond_size), w = text.length * 6.6, h = 12;
+      const spots = [[9, -6], [9, 14], [-9 - w, -6], [-9 - w, 14], [9, 26], [-9 - w, 26], [9, -18], [-9 - w, -18]];
+      const [dx, dy] = spots.find(([sx, sy]) => free({ x0: px + sx, x1: px + sx + w, y0: py + sy - h, y1: py + sy + 2 })) || spots[0];
+      placed.push({ x0: px + dx, x1: px + dx + w, y0: py + dy - h, y1: py + dy + 2 });
+      svg.append("text").attr("class", cls).attr("x", px + dx).attr("y", py + dy).text(text);
+    };
+    for (const r of [...an.front, an.mondrian, an.marginal]) placed.push({ x0: x(r.covgap) - 6, x1: x(r.covgap) + 6, y0: y(r.cond_size) - 6, y1: y(r.cond_size) + 6 });
+    placed.push({ x0: x(pick.covgap) - 12, x1: x(pick.covgap) + 12, y0: y(pick.cond_size) - 12, y1: y(pick.cond_size) + 12 });
+    label(an.mondrian, "Mondrian", null);
+    label(an.marginal, "Marginal", null);
+    for (const r of an.front) label(r, `φ${r.min_size} γ${fmtG(r.gamma)}`, "flabel");
+
+    const mark = svg.append("circle").attr("r", 13).attr("fill", "none").attr("stroke", c.ink).attr("stroke-width", 1.5).attr("display", "none").style("pointer-events", "none");
+    const all = [...an.settings, an.mondrian, an.marginal];
+    svg.append("g").selectAll("circle").data(all).join("circle").attr("cx", (r) => x(r.covgap)).attr("cy", (r) => y(r.cond_size)).attr("r", 8).attr("fill", "transparent")
+      .on("pointermove", (ev, r) => hover(ev, an, valAn, r)).on("pointerleave", unhover);
+    links.push({ pos: new Map(all.map((r) => [r.key, [x(r.covgap), y(r.cond_size)]])), mark, place: (s, [px, py]) => s.attr("cx", px).attr("cy", py) });
+
+    const L = d3.select("#pareto-legend");
+    L.html("");
+    const item = (svgText, text) => L.append("span").attr("class", "item").html(`${svgText}<span>${text}</span>`);
+    item(`<svg width="10" height="10" viewBox="-5 -5 10 10"><circle r="3.8" fill="none" stroke="${c.dominated}"></circle></svg>`, "below coverage floor");
+    item(`<svg width="10" height="10" viewBox="-5 -5 10 10"><circle r="3.8" fill="${c.dominated}"></circle></svg>`, "beaten on both");
+    item(`<svg width="26" height="12" viewBox="0 -6 26 12"><path d="M2,-3 H13 V3 H24" fill="none" stroke="${c.accent}" stroke-width="1.6"></path><circle cx="2" cy="-3" r="2.8" fill="${c.accent}"></circle><circle cx="13" cy="3" r="2.8" fill="${c.accent}"></circle></svg>`, "Pareto front");
+    item(`<svg width="22" height="12"><rect width="22" height="12" fill="${c["accent-soft"]}"></rect><line x1="0.5" x2="0.5" y1="0" y2="12" stroke="${c.accent}" stroke-dasharray="3 3"></line></svg>`, "band g* to g* + δ");
+    item(`<svg width="16" height="16" viewBox="-8 -8 16 16"><circle r="6" fill="none" stroke="${c.accent}" stroke-width="2"></circle></svg>`, an.split === "valid" ? "pick" : "picked on validation");
+    item(`<svg width="12" height="12" viewBox="-6 -6 12 12"><path d="${d3.symbol(d3.symbolDiamond, 60)()}" fill="${c.ref}"></path></svg>`, "Mondrian");
+    item(`<svg width="12" height="12" viewBox="-6 -6 12 12"><path d="${d3.symbol(d3.symbolCross, 60)()}" fill="${c.ref}"></path></svg>`, "marginal");
+  }
+
+  // ---- diagram 2: the settings by phi and gamma ----
+  function drawGrid(an, valAn, c) {
+    const el = document.getElementById("grid");
+    const grid = DATA.models[state.ds].grid[String(state.alpha)];
+    const W = el.clientWidth;
+    const lw = 50, top = 40;
+    const cw = (W - lw) / grid.length;
+    const ch = Math.round(Math.max(34, Math.min(58, cw * 0.78)));
+    const H = top + GAMMAS.length * ch + 4;
+    el.innerHTML = "";
+    const svg = d3.select(el).append("svg").attr("viewBox", `0 0 ${W} ${H}`).attr("width", "100%").attr("height", H).attr("role", "img")
+      .attr("aria-label", "Settings by minimum group size and gamma");
+    svg.append("defs").append("pattern").attr("id", "hatch").attr("patternUnits", "userSpaceOnUse").attr("width", 6).attr("height", 6).attr("patternTransform", "rotate(45)")
+      .append("line").attr("x1", 0).attr("y1", 0).attr("x2", 0).attr("y2", 6).attr("stroke", c.warn).attr("stroke-width", 1.6).attr("opacity", 0.6);
+    const cellOf = (r) => ({ x: lw + grid.indexOf(r.min_size) * cw, y: top + GAMMAS.indexOf(r.gamma) * ch });
+
+    const M = COLOR_BY[state.color];
+    const vals = an.settings.map((r) => r[state.color]);
+    let fill;
+    if (state.color === "coverage") {
+      const span = d3.max(vals, (v) => Math.abs(v - an.floor)) || 0.01;
+      fill = (v) => (v < an.floor ? d3.interpolateLab(c.faint, c.warn)(0.2 + 0.8 * Math.min(1, (an.floor - v) / span)) : d3.interpolateLab(c["heat-hi"], c["heat-lo"])(Math.min(1, (v - an.floor) / span)));
+    } else {
+      const dom = d3.extent(vals);
+      const t = (M.log ? d3.scaleLog() : d3.scaleLinear()).domain(dom).range([0, 1]).clamp(true);
+      fill = (v) => d3.interpolateLab(c["heat-lo"], c["heat-hi"])(dom[0] === dom[1] ? 0.5 : t(v));
+    }
+
+    svg.append("text").attr("class", "title").attr("x", lw).attr("y", 12).text("φ, minimum group size →");
+    grid.forEach((phi, i) => svg.append("text").attr("x", lw + (i + 0.5) * cw).attr("y", top - 8).attr("text-anchor", "middle").text(phi));
+    svg.append("text").attr("class", "title").attr("x", 0).attr("y", top - 8).text("γ ↓");
+    GAMMAS.forEach((g, j) => svg.append("text").attr("x", lw - 10).attr("y", top + (j + 0.5) * ch + 4).attr("text-anchor", "end").text(fmtG(g)));
+
+    const twoLines = cw >= 54 && ch >= 40;
+    const pick = an.split === "valid" ? an.chosen : an.byKey.get(valAn.chosen.key);
+    for (const r of an.settings) {
+      const { x, y } = cellOf(r);
+      const f = fill(r[state.color]);
+      const g = svg.append("g").on("pointermove", (ev) => hover(ev, an, valAn, r)).on("pointerleave", unhover);
+      g.append("rect").attr("x", x + 1).attr("y", y + 1).attr("width", cw - 2).attr("height", ch - 2).attr("rx", 2).attr("fill", f);
+      if (r.coverage < an.floor) g.append("rect").attr("x", x + 1).attr("y", y + 1).attr("width", cw - 2).attr("height", ch - 2).attr("fill", "url(#hatch)");
+      const ink = d3.lab(f).l < 55 ? c["on-dark"] : c["on-light"];
+      const fs = cw < 44 ? "9.5px" : "10.5px";
+      if (twoLines) {
+        g.append("text").attr("x", x + cw / 2).attr("y", y + ch / 2 - 2).attr("text-anchor", "middle").style("fill", ink).style("font-size", fs).text(f3(r.covgap));
+        g.append("text").attr("x", x + cw / 2).attr("y", y + ch / 2 + 11).attr("text-anchor", "middle").style("fill", ink).style("font-size", fs).style("opacity", 0.85).text(size(r.cond_size));
+      } else {
+        g.append("text").attr("x", x + cw / 2).attr("y", y + ch / 2 + 4).attr("text-anchor", "middle").style("fill", ink).style("font-size", fs).text(M.fmt(r[state.color]));
+      }
+      if (an.onFront.has(r.key)) g.append("rect").attr("x", x + 3).attr("y", y + 3).attr("width", cw - 6).attr("height", ch - 6).attr("rx", 2).attr("fill", "none").attr("stroke", c.accent).attr("stroke-width", 2);
+      if (an.inBand.has(r.key)) g.append("path").attr("d", `M${x + cw - 13},${y + 1} H${x + cw - 1} V${y + 13} Z`).attr("fill", c.accent);
+      if (r.key === pick.key) g.append("rect").attr("x", x - 1).attr("y", y - 1).attr("width", cw + 2).attr("height", ch + 2).attr("rx", 3).attr("fill", "none")
+        .attr("stroke", an.split === "valid" && an.fallback ? c.warn : c.ink).attr("stroke-width", 3).attr("stroke-dasharray", an.split === "valid" && an.fallback ? "4 2" : null);
+    }
+    const mark = svg.append("rect").attr("fill", "none").attr("stroke", c.ink).attr("stroke-width", 1.5).attr("stroke-dasharray", "4 2").attr("display", "none").style("pointer-events", "none");
+    links.push({ pos: new Map(an.settings.map((r) => { const p = cellOf(r); return [r.key, [p.x + 5, p.y + 5, cw - 10, ch - 10]]; })), mark, place: (s, [px, py, w, h]) => s.attr("x", px).attr("y", py).attr("width", w).attr("height", h) });
+
+    const L = d3.select("#grid-legend");
+    L.html("");
+    const item = (svgText, text) => L.append("span").attr("class", "item").html(`${svgText}<span>${text}</span>`);
+    if (state.color === "coverage") {
+      item(`<svg width="34" height="10"><rect width="17" height="10" fill="${c.warn}"></rect><rect x="17" width="17" height="10" fill="${c["heat-lo"]}"></rect></svg>`, "below / above the floor");
+    } else {
+      const dom = d3.extent(vals);
+      L.append("span").attr("class", "item").html(`<span class="num">${esc(M.fmt(dom[0]))}</span><svg width="48" height="10"><defs><linearGradient id="grid-grad"><stop offset="0" stop-color="${c["heat-lo"]}"></stop><stop offset="1" stop-color="${c["heat-hi"]}"></stop></linearGradient></defs><rect width="48" height="10" fill="url(#grid-grad)" stroke="${c.line}"></rect></svg><span class="num">${esc(M.fmt(dom[1]))}</span><span>${esc(M.label)}</span>`);
+    }
+    item(`<svg width="14" height="14"><defs><pattern id="hatch-l" patternUnits="userSpaceOnUse" width="5" height="5" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="5" stroke="${c.warn}" stroke-width="1.5"></line></pattern></defs><rect width="14" height="14" fill="url(#hatch-l)"></rect></svg>`, "below floor");
+    item(`<svg width="14" height="14"><rect x="1" y="1" width="12" height="12" rx="2" fill="none" stroke="${c.accent}" stroke-width="2"></rect></svg>`, "on the front");
+    item(`<svg width="12" height="12"><path d="M0,0 H12 V12 Z" fill="${c.accent}"></path></svg>`, "in the band");
+    item(`<svg width="16" height="16"><rect x="1.5" y="1.5" width="13" height="13" rx="2" fill="none" stroke="${c.ink}" stroke-width="3"></rect></svg>`, an.split === "valid" ? "pick" : "picked on validation");
+    document.getElementById("grid-caption").textContent = `${twoLines ? "Each cell: CovGap, then cond. set size. " : ""}References on the same data: Mondrian ${f3(an.mondrian.covgap)} / ${size(an.mondrian.cond_size)}, marginal ${f3(an.marginal.covgap)} / ${size(an.marginal.cond_size)} (CovGap / cond. set size).`;
+  }
+
+  // ---- the steps of the rule ----
+  function drawSteps(an, valAn) {
+    const S = d3.select("#steps");
+    S.html("");
+    const step = (n, big, what, cls) => {
+      const li = S.append("li");
+      li.append("span").attr("class", "n").text(n);
+      li.append("span").attr("class", `big${cls ? " " + cls : ""}`).text(big);
+      li.append("span").attr("class", "what").html(what);
+    };
+    step("1 · floor", `${an.feasible.length} of ${an.settings.length}`, `cover at least ${f4(an.floor + 1e-12)} = min(1 − α, marginal CP's ${f4(an.marginal.coverage)})`, an.fallback ? "warn" : null);
+    if (an.fallback) {
+      step("2 · front", "–", "nothing meets the floor");
+      step("3 · band", "–", "nothing meets the floor");
+    } else {
+      step("2 · front", `${an.front.length}`, "of those are not beaten on both CovGap and set size");
+      step("3 · band", `${an.front.filter((r) => an.inBand.has(r.key)).length}`, `front settings with CovGap ≤ g* + δ = ${f4(an.lowest)} + ${f3(state.tol)}`);
+    }
+    if (an.split === "valid") {
+      step("4 · pick", setting(an.chosen), an.fallback ? "none meets the floor: the setting with the highest coverage" : "the smallest sets in the band", an.fallback ? "warn" : "pick");
+    } else {
+      const v = an.byKey.get(valAn.chosen.key);
+      const where = v.coverage < an.floor ? "below the test floor" : `${an.onFront.has(v.key) ? "on" : "off"} the test front, ${an.inBand.has(v.key) ? "inside" : "outside"} the band`;
+      step("4 · validation pick", setting(v), `${where}; the rule on test would pick ${esc(setting(an.chosen))}`, "pick");
+    }
+  }
+
+  // ---- the results of the picks, all score functions and alphas ----
+  function drawResults() {
+    const d = DATA.models[state.ds];
+    const split = hasSplit(state.ds, "test") ? "test" : "valid";
+    document.getElementById("results-title").textContent = `${d.label} ${d.model_label}: results ${split === "test" ? "on test" : "on validation"}`;
+    document.getElementById("results-note").textContent = `settings picked on validation at δ = ${f3(state.tol)}`;
+    const T = d3.select("#results");
+    T.html("");
+    const head = T.append("thead");
+    const h1 = head.append("tr");
+    h1.append("th").attr("colspan", 2);
+    h1.append("th").attr("class", "group").attr("colspan", 2).text("Picked");
+    for (const name of ["CondKGCP", "Mondrian", "Marginal"]) h1.append("th").attr("class", "group").attr("colspan", 3).text(name);
+    const h2 = head.append("tr");
+    for (const [t, g] of [["Score"], ["α"], ["φ", 1], ["γ"], ...[0, 1, 2].flatMap(() => [["CovGap", 1], ["cond. size"], ["mean size"]])]) h2.append("th").attr("class", g ? "group" : null).text(t);
+    const body = T.append("tbody");
+    let fallbacks = 0;
+    for (const s of SCORES) for (const a of ALPHAS) {
+      const valAn = analyse(state.ds, "valid", s, a, state.tol), an = analyse(state.ds, split, s, a, state.tol);
+      if (!valAn || !an) continue;
+      const pick = an.byKey.get(valAn.chosen.key);
+      const methods = [pick, an.mondrian, an.marginal];
+      const best = { covgap: d3.min(methods, (r) => r.covgap), cond_size: d3.min(methods, (r) => r.cond_size), size: d3.min(methods, (r) => r.size) };
+      const select = () => { state.score = s; state.alpha = a; render(); document.getElementById("steps").scrollIntoView({ behavior: "smooth", block: "center" }); };
+      const tr = body.append("tr").attr("tabindex", 0).attr("aria-current", String(s === state.score && a === state.alpha))
+        .on("click", select).on("keydown", (ev) => { if (ev.key === "Enter") select(); });
+      tr.append("td").text(SCORE_LABEL[s]);
+      tr.append("td").text(a);
+      if (valAn.fallback) fallbacks += 1;
+      tr.append("td").attr("class", `group${valAn.fallback ? " fallback" : ""}`).text(`${pick.min_size}${valAn.fallback ? "*" : ""}`);
+      tr.append("td").attr("class", valAn.fallback ? "fallback" : null).text(fmtG(pick.gamma));
+      for (const r of methods) {
+        tr.append("td").attr("class", `group${r.covgap === best.covgap ? " best" : ""}`).text(f3(r.covgap));
+        tr.append("td").attr("class", r.cond_size === best.cond_size ? "best" : null).text(size(r.cond_size));
+        tr.append("td").attr("class", r.size === best.size ? "best" : null).text(size(r.size));
+      }
+    }
+    document.getElementById("results-caption").textContent =
+      `CovGap and cond. set size are means over relations; mean size is over queries. Blue: the best of the three methods in that row (lowest CovGap, smallest sets). ` +
+      (fallbacks ? `* No setting met the coverage floor on validation; the pick is the setting with the highest coverage. ` : "") +
+      `Test values use the first ${d.splits.test} test splits of scripts/conformal.py. Click a row to show that case above.`;
+  }
+
+  // ---- controls and page ----
+  function seg(id, options, key) {
+    const el = document.getElementById(id);
+    el.innerHTML = "";
+    for (const o of options) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = o.label;
+      b.disabled = !!o.disabled;
+      b.setAttribute("aria-pressed", String(o.pressed ?? state[key] === o.value));
+      b.addEventListener("click", () => { state[key] = o.value; render(); });
+      el.appendChild(b);
+    }
+  }
+  const tolInput = document.getElementById("c-tol");
+  tolInput.addEventListener("input", () => { state.tol = +tolInput.value; render(); });
+  const colorInput = document.getElementById("c-color");
+  colorInput.innerHTML = Object.entries(COLOR_BY).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join("");
+  colorInput.addEventListener("change", () => { state.color = colorInput.value; render(); });
+
+  function render() {
+    if (state.split === "test" && !hasSplit(state.ds, "test")) state.split = "valid";
+    save();
+    const d = DATA.models[state.ds];
+    const models = Object.values(DATA.models);
+    const keyOf = (dataset, model) => `${dataset}-${model}`;
+    seg("c-ds", [...new Set(models.map((m) => m.dataset))].map((dataset) => {
+      const key = DATA.models[keyOf(dataset, d.model)] ? keyOf(dataset, d.model) : keyOf(dataset, models.find((m) => m.dataset === dataset).model);
+      return { value: key, label: models.find((m) => m.dataset === dataset).label, pressed: dataset === d.dataset };
+    }), "ds");
+    seg("c-model", models.filter((m) => m.dataset === d.dataset).map((m) => ({ value: keyOf(m.dataset, m.model), label: m.model_label })), "ds");
+    seg("c-score", SCORES.map((s) => ({ value: s, label: SCORE_LABEL[s] })), "score");
+    seg("c-alpha", ALPHAS.map((a) => ({ value: a, label: String(a) })), "alpha");
+    seg("c-split", [{ value: "valid", label: `Validation (${d.splits.valid} splits)` }, { value: "test", label: `Test (${d.splits.test} splits)`, disabled: !hasSplit(state.ds, "test") }], "split");
+    tolInput.value = state.tol;
+    document.getElementById("c-tol-val").textContent = f3(state.tol);
+    colorInput.value = state.color;
+
+    const an = analyse(state.ds, state.split, state.score, state.alpha, state.tol);
+    const valAn = analyse(state.ds, "valid", state.score, state.alpha, state.tol);
+    document.getElementById("intro").textContent =
+      `${d.label} · ${d.model_label} · ${SCORE_LABEL[state.score]} · α = ${state.alpha} · ${state.split === "valid" ? "validation" : "test"}. The ${an.settings.length} CondKGCP settings (${d.grid[String(state.alpha)].length} values of φ × ${GAMMAS.length} of γ), drawn twice: by their two metrics, CovGap and conditional set size (mean over relations), and by their two hyperparameters. Hover over a setting in either diagram to find it in the other.`;
+    links.length = 0;
+    const c = colors();
+    drawSteps(an, valAn);
+    drawPareto(an, valAn, c);
+    drawGrid(an, valAn, c);
+    drawResults();
+    document.getElementById("footer").innerHTML =
+      `<p>At δ = ${DATA.tolerance}, the picks in this page match the run's in <span class="badge" style="color:${agree === checked ? "var(--accent)" : "var(--warn)"}">${agree} of ${checked}</span> cases.</p>
+      <p>Validation: ${d.splits.valid} random splits of the validation queries, with calibration sets as large as the test halves. Test: the same settings on ${d.splits.test} random halves of the test queries; there the front and band come from the test results, and the ring marks the setting picked on validation. Relations count when they have at least 10 distinct queries.</p>`;
+  }
+
+  render();
+  let raf = 0, width = document.querySelector(".page").clientWidth;
+  new ResizeObserver(([entry]) => {
+    const w = Math.round(entry.contentRect.width);
+    if (w === width) return; // redraw on width changes only
+    width = w;
+    cancelAnimationFrame(raf);
+    raf = requestAnimationFrame(render);
+  }).observe(document.querySelector(".page"));
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
+  new MutationObserver(render).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+})();
+</script>
+</body>
+</html>
