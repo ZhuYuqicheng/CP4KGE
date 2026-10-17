@@ -324,6 +324,26 @@ defines ranks by the logits, without filtering; here they are ranks by the
 nonconformity score among the filtered candidates, the same order for every score up
 to ties.
 
+**Choosing CondKGCP's settings.** `scripts/conformal.py --select` picks `min_size` and
+γ per score function and α on 10 random splits of the validation queries, each
+calibrating on as many queries as a test half. The candidates are 8 values of
+`min_size`, evenly spaced on a log scale from ⌊1/α⌋ + 1 (the smallest group that can
+estimate a top-k miscoverage below α) to the expected calibration queries of the most
+frequent relation, times γ ∈ {0, 0.25, 0.5, 0.75, 1}. Of the settings that cover at least
+min(1 − α, marginal CP's coverage on the same splits), it keeps those within δ = 0.005 of
+the lowest CovGap, and of these picks the one with the smallest mean set size per
+relation. On the Pareto front of CovGap and set size, that is the front's smallest sets
+within δ of its lowest CovGap. `scripts/condkgcp_search.py` runs every setting on
+validation and on test and writes a page to review the search
+([results/conformal/libkge/condkgcp-search.html](../results/conformal/libkge/condkgcp-search.html),
+to open in a browser): per dataset, model, score function and α, the steps of the rule,
+the Pareto front, the settings by `min_size` and γ, and the selected settings on test
+against Mondrian and marginal CP. So far it holds DistMult on WN18 and FB15k. There, over
+the six scores and three α, the selected settings' sets per relation are 0.16× and 0.04×
+as large as Mondrian CP's (geometric mean on test), for a mean CovGap of 0.023 and 0.033,
+against Mondrian's 0.015 and 0.031 and marginal CP's 0.057 and 0.090: CondKGCP trades a
+little of Mondrian's conditional coverage for much smaller sets.
+
 **Calibration splits.** Test queries, not triples, are split at random. A triple's head
 and tail queries are correlated (correlation 0.59 for Softmax with DistMult on Nations;
 without reciprocal relations, their targets have the same Neg score). If both always fell
@@ -386,6 +406,7 @@ datasets and three models) runs in about 2 minutes on a laptop CPU.
 ```bash
 uv run scripts/conformal.py  # the tuned models in models/
 uv run scripts/conformal.py --calibration valid
+uv run scripts/condkgcp_search.py models/libkge/wn18-distmult.pt models/libkge/fb15k-distmult.pt
 uv run pytest
 ```
 
