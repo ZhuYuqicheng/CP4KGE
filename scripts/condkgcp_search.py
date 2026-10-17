@@ -5,7 +5,8 @@ scripts/conformal.py (CondKGCP and its two ablations, with marginal and Mondrian
 reference) twice: on the validation splits of its --select, which mark the selected
 settings, and on its first --test-splits test splits. Writes one row per split, score
 function, alpha and setting to <out>/<name>-search.csv, with metrics pooled over the
-splits and their standard deviation over single splits.
+splits and their standard deviation over single splits. A progress bar per model counts
+its steps, a setting on a split, and estimates the time left.
 
 Then builds <out>/condkgcp-search.html from all <out>/*-search.csv, a page to open in a
 browser. For a dataset, model, score function and alpha, it shows the selection rule
@@ -41,7 +42,9 @@ METRICS = ["coverage", "size", "cond_size", "covgap", "ucg", "ucr", "singleton",
 SPREAD = ["coverage", "cond_size", "covgap"]
 
 
-def pooled(splits: list[tuple], rows: list[dict], alpha: float, merged, args) -> list[dict]:
+def pooled(
+    splits: list[tuple], rows: list[dict], alpha: float, merged, args, bar: tqdm
+) -> list[dict]:
     """The rows with their metrics pooled over the (calibration, evaluation) splits, and
     the standard deviation of the metrics over single splits."""
     out = []
@@ -54,6 +57,7 @@ def pooled(splits: list[tuple], rows: list[dict], alpha: float, merged, args) ->
             parts.append(
                 SimpleNamespace(covered=sets.covered, size=sets.size, queries=sets.queries)
             )
+            bar.update()
         metrics = kgcp.evaluate(parts, alpha, args.min_queries)
         single = [kgcp.evaluate([p], alpha, args.min_queries) for p in parts]
         spread = {f"{m}_sd": statistics.stdev(s[m] for s in single) for m in SPREAD}
@@ -68,7 +72,7 @@ def setting(row: dict, selected: bool | None) -> dict:
     return {k: row[k] for k in keys} | {"selected": selected} | rest
 
 
-def search(file: Path, args, bar: tqdm) -> list[dict]:
+def search(file: Path, args) -> list[dict]:
     """Rows of every setting, score function and alpha of a model, on validation and test."""
     dataset, model_name = file.stem.rsplit("-", 1)
     model = kgcp.LibKGE(file, device=args.device)
@@ -78,9 +82,20 @@ def search(file: Path, args, bar: tqdm) -> list[dict]:
     known = {"valid": kg.known("train"), "test": kg.known("train", "valid")}
     queries = {split: kgcp.Queries.from_triples(kg.split(split)) for split in known}
     calibration_size = round(0.5 * len(queries["test"]))
+    space = {  # per alpha, the settings of each method
+        alpha: conformal.search_space(
+            conformal.min_sizes(queries["valid"], calibration_size, alpha), args.gammas
+        )
+        for alpha in args.alphas
+    }
+    # a step is a setting on a split; the two reference methods are settings too
+    settings = sum(2 + sum(map(len, methods.values())) for methods in space.values())
+    steps = len(conformal.SCORES) * settings * (args.select_splits + args.test_splits)
+    bar = tqdm(total=steps, desc=file.stem, unit="step", smoothing=0)
     rows = []
     for score_name, score in conformal.SCORES.items():
         for split in ("valid", "test"):  # one split's scores in memory at a time
+            bar.set_postfix_str(f"{score_name} {split}")
             scores = kgcp.nonconformity(
                 model,
                 queries[split],
@@ -104,11 +119,10 @@ def search(file: Path, args, bar: tqdm) -> list[dict]:
                 "score": score_name,
             }
             for alpha in args.alphas:
-                sizes = conformal.min_sizes(queries["valid"], calibration_size, alpha)
-                reference = pooled(splits, conformal.BASELINES[:2], alpha, merged, args)
+                reference = pooled(splits, conformal.BASELINES[:2], alpha, merged, args, bar)
                 rows += [key | setting(row, None) for row in reference]
-                for settings in conformal.search_space(sizes, args.gammas).values():
-                    tuned = pooled(splits, settings, alpha, merged, args)
+                for settings in space[alpha].values():
+                    tuned = pooled(splits, settings, alpha, merged, args, bar)
                     chosen = None
                     if split == "valid":
                         floor = reference[0]["coverage"]  # marginal CP's
@@ -118,7 +132,7 @@ def search(file: Path, args, bar: tqdm) -> list[dict]:
                         for row in tuned
                     ]
             del scores, splits
-        bar.update()
+    bar.close()
     return rows
 
 
@@ -204,7 +218,8 @@ def page(out: Path, tolerance: float) -> Path | None:
     return html
 
 
-def main():
+def parser() -> argparse.ArgumentParser:
+    """The options; cloud/modal/condkgcp.py runs the search with the same defaults."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("models", nargs="*", type=Path, help="files <dataset>-<model>.pt")
     parser.add_argument("--alphas", nargs="+", type=float, default=[0.05, 0.1, 0.2])
@@ -216,18 +231,17 @@ def main():
     parser.add_argument("--device", default="cpu", help="cpu, cuda, mps or auto")
     parser.add_argument("--batch-size", type=int, default=1024, help="queries per model call")
     parser.add_argument("--out", type=Path, default=ROOT / "results/conformal/libkge")
-    args = parser.parse_args()
+    return parser
 
+
+def main():
+    args = parser().parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
-    if args.models:
-        total = len(conformal.SCORES) * len(args.models)
-        with tqdm(total=total, unit="score", smoothing=0) as bar:  # per model and score
-            for file in args.models:
-                bar.set_postfix_str(file.stem)
-                start = time.time()
-                out = args.out / f"{file.stem}-search.csv"
-                conformal.write(search(file, args, bar), out)
-                tqdm.write(f"{file.stem}: {time.time() - start:.0f} s, {out}")
+    for file in args.models:
+        start = time.time()
+        out = args.out / f"{file.stem}-search.csv"
+        conformal.write(search(file, args), out)
+        print(f"{file.stem}: {time.time() - start:.0f} s, {out}")
     html = page(args.out, args.covgap_tolerance)
     print(html or f"no *-search.csv in {args.out}")
 
