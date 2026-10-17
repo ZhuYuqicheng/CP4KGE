@@ -115,6 +115,28 @@ uv run scripts/tune.py export --dir runs/modal/nations-rescal --datasets nations
 GPU and CPU runs are not bit-identical, so each pair is tuned on one device from start
 to finish (`history.txt` shows the device).
 
+## CondKGCP's search space
+
+[condkgcp.py](condkgcp.py) runs `scripts/condkgcp_search.py` with its default settings
+on LibKGE's published WN18 and FB15k models, read from the volume
+(`libkge-models/<dataset>-<model>.pt`). Each model gets its own T4 container (8 CPU cores
+and 24 GiB of memory, since the settings are evaluated on the CPU), and all models run in
+parallel. Each container prints its model's progress bar to the logs once a minute, with
+the time left. The CSVs are written to `condkgcp-search/` on the volume; models whose CSV
+is there already are skipped.
+
+```bash
+uv run --group modal modal run --detach cloud/modal/condkgcp.py --models wn18-transe,fb15k-transe
+uv run --group modal modal app logs <app id> | tr '\r' '\n'    # the progress bars
+uv run --group modal modal volume get kge-runs condkgcp-search /tmp/   # to /tmp/condkgcp-search/
+cp /tmp/condkgcp-search/*.csv results/conformal/libkge/
+uv run scripts/condkgcp_search.py                                  # rebuilds the page
+```
+
+The app id is printed when the run starts (`ap-...`). A run of the ten WN18 and FB15k
+models other than DistMult took 45 minutes: 5–8 minutes per WN18 model and 35–44 minutes
+per FB15k model, about 4 container hours.
+
 ## Costs
 
 Modal bills GPU, CPU cores and memory per second; region pinning and non-preemptible

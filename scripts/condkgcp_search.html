@@ -108,8 +108,14 @@ tbody tr[aria-current="true"] td { background: var(--accent-soft); }
 tbody tr:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 footer { font-size: 12.5px; color: var(--muted); display: grid; gap: 6px; border-top: 1px solid var(--line); padding-top: 14px; }
 .badge { display: inline-block; font-size: 11px; font-family: var(--font-mono); border: 1px solid currentColor; border-radius: 4px; padding: 0 6px; }
+h3 { font-family: var(--font-body); font-size: 13px; font-weight: 600; margin: 0 0 4px; }
+.findings { margin: 0; padding-left: 18px; display: grid; gap: 4px; max-width: 110ch; }
+.findings b { font-weight: 600; }
+.vs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+td.dim { color: var(--muted); }
+tbody tr.total td { border-top: 2px solid var(--line); font-weight: 600; }
 @media (max-width: 1040px) {
-  .figures { grid-template-columns: minmax(0, 1fr); }
+  .figures, .vs { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 700px) {
   .steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -158,6 +164,21 @@ footer { font-size: 12.5px; color: var(--muted); display: grid; gap: 6px; border
     <div class="panel-head"><h2 id="results-title">Results on test</h2><span class="caption" id="results-note"></span></div>
     <div class="table-wrap"><table id="results"></table></div>
     <p class="caption" id="results-caption"></p>
+  </section>
+
+  <section class="panel" aria-labelledby="all-title">
+    <div class="panel-head">
+      <h2 id="all-title">All models: the picks on test</h2>
+      <div class="control"><span class="label">Cases</span><div class="seg" id="c-cases"></div></div>
+    </div>
+    <ul class="findings" id="findings"></ul>
+    <div class="vs">
+      <div><h3>Against Mondrian CP</h3><div class="chart" id="vs-mondrian"></div></div>
+      <div><h3>Against marginal CP</h3><div class="chart" id="vs-marginal"></div></div>
+    </div>
+    <div class="legend" id="vs-legend"></div>
+    <div class="table-wrap"><table id="overview"></table></div>
+    <p class="caption" id="overview-caption"></p>
   </section>
 
   <footer id="footer"></footer>
@@ -241,7 +262,7 @@ footer { font-size: 12.5px; color: var(--muted); display: grid; gap: 6px; border
   }
 
   // ---- state ----
-  const state = { ds: Object.keys(DATA.models)[0], score: "softmax", alpha: 0.1, split: "valid", tol: DATA.tolerance, color: "covgap" };
+  const state = { ds: Object.keys(DATA.models)[0], score: "softmax", alpha: 0.1, split: "valid", tol: DATA.tolerance, color: "covgap", cases: "all" };
   try { Object.assign(state, JSON.parse(localStorage.getItem("condkgcp-search") || "{}")); } catch (e) { /* no storage */ }
   if (!DATA.models[state.ds]) state.ds = Object.keys(DATA.models)[0];
   const save = () => { try { localStorage.setItem("condkgcp-search", JSON.stringify(state)); } catch (e) { /* no storage */ } };
@@ -257,12 +278,7 @@ footer { font-size: 12.5px; color: var(--muted); display: grid; gap: 6px; border
     if (r.coverage < an.floor) return "below the coverage floor";
     return an.onFront.has(r.key) ? (an.inBand.has(r.key) ? "on the front, in the band" : "on the front") : "beaten on both metrics";
   }
-  function hover(ev, an, valAn, r) {
-    const tags = [];
-    if (an.split === "valid" && r.key === an.chosen.key) tags.push("the pick");
-    if (an.split === "test" && r.key === valAn.chosen.key) tags.push("picked on validation");
-    tip.innerHTML = `<b>${esc(setting(r))}</b><br><span class="muted">${esc([kind(an, r), ...tags].join(" · "))}</span>
-      <dl><dt>coverage</dt><dd>${f3(r.coverage)}</dd><dt>CovGap</dt><dd>${f4(r.covgap)}</dd><dt>cond. size</dt><dd>${size(r.cond_size)}</dd><dt>mean size</dt><dd>${size(r.size)}</dd></dl>`;
+  function placeTip(ev) {
     tip.hidden = false;
     const w = tip.offsetWidth, h = tip.offsetHeight;
     let x = ev.clientX + 14, y = ev.clientY + 14;
@@ -270,6 +286,14 @@ footer { font-size: 12.5px; color: var(--muted); display: grid; gap: 6px; border
     if (y + h > innerHeight - 8) y = ev.clientY - h - 14;
     tip.style.left = `${Math.max(8, x)}px`;
     tip.style.top = `${Math.max(8, y)}px`;
+  }
+  function hover(ev, an, valAn, r) {
+    const tags = [];
+    if (an.split === "valid" && r.key === an.chosen.key) tags.push("the pick");
+    if (an.split === "test" && r.key === valAn.chosen.key) tags.push("picked on validation");
+    tip.innerHTML = `<b>${esc(setting(r))}</b><br><span class="muted">${esc([kind(an, r), ...tags].join(" · "))}</span>
+      <dl><dt>coverage</dt><dd>${f3(r.coverage)}</dd><dt>CovGap</dt><dd>${f4(r.covgap)}</dd><dt>cond. size</dt><dd>${size(r.cond_size)}</dd><dt>mean size</dt><dd>${size(r.size)}</dd></dl>`;
+    placeTip(ev);
     for (const l of links) {
       const p = l.pos.get(r.key);
       if (p) l.place(l.mark.attr("display", null), p); else l.mark.attr("display", "none");
@@ -500,6 +524,172 @@ footer { font-size: 12.5px; color: var(--muted); display: grid; gap: 6px; border
       `Test values use the first ${d.splits.test} test splits of scripts/conformal.py. Click a row to show that case above.`;
   }
 
+  // ---- all models: the validation picks on test ----
+  const ratio = (v) => `${v < 1 ? d3.format(".2~g")(v) : v < 10 ? d3.format(".1f")(v) : d3.format(",.0f")(v)}×`;
+  const geo = (xs) => Math.exp(d3.mean(xs, Math.log));
+  const caseName = (p) => `${p.d.label} ${p.d.model_label} · ${SCORE_LABEL[p.score]} · α ${p.alpha}`;
+  const show = (ds, score = state.score, alpha = state.alpha) => {
+    Object.assign(state, { ds, score, alpha });
+    render();
+    document.getElementById("steps").scrollIntoView({ behavior: "smooth", block: "center" });
+  };
+  // the cases of the "Cases" control: every model, score function and alpha with test results
+  function picks() {
+    const out = [];
+    for (const [ds, d] of Object.entries(DATA.models)) {
+      if (!hasSplit(ds, "test")) continue;
+      for (const s of SCORES) for (const a of ALPHAS) {
+        if ((state.cases === "score" && s !== state.score) || (state.cases === "alpha" && a !== state.alpha)) continue;
+        const valAn = analyse(ds, "valid", s, a, state.tol), an = analyse(ds, "test", s, a, state.tol);
+        if (!valAn || !an) continue;
+        const pick = an.byKey.get(valAn.chosen.key);
+        out.push({ ds, d, score: s, alpha: a, pick, mondrian: an.mondrian, marginal: an.marginal, fallback: valAn.fallback, front: an.onFront.has(pick.key) });
+      }
+    }
+    return out;
+  }
+  function summary(ps) {
+    const count = (f) => ps.filter(f).length;
+    const both = (f) => ({ mondrian: f("mondrian"), marginal: f("marginal") });
+    return {
+      n: ps.length,
+      covgap: { condkgcp: d3.mean(ps, (p) => p.pick.covgap), ...both((m) => d3.mean(ps, (p) => p[m].covgap)) },
+      cond: both((m) => geo(ps.map((p) => p.pick.cond_size / p[m].cond_size))),
+      size: both((m) => geo(ps.map((p) => p.pick.size / p[m].size))),
+      lower: both((m) => count((p) => p.pick.covgap < p[m].covgap)),
+      smaller: both((m) => count((p) => p.pick.cond_size < p[m].cond_size)),
+      close: count((p) => p.pick.covgap <= p.mondrian.covgap + 0.01),
+      front: count((p) => p.front),
+      fallback: count((p) => p.fallback),
+    };
+  }
+
+  function drawFindings(ps) {
+    const F = d3.select("#findings");
+    F.html("");
+    if (!ps.length) { F.append("li").text("No model has test results yet."); return; }
+    const S = summary(ps), of = (k) => `${k} of ${S.n}`;
+    const li = (html) => F.append("li").html(html);
+    const count = (key) => new Set(ps.map((p) => p[key])).size;
+    li(`<b>${S.n} cases</b> (${count("ds")} models × ${count("score")} score functions × ${count("alpha")} values of α): in each, CondKGCP's setting is picked on validation, then CondKGCP, Mondrian and marginal CP run on the same test splits.`);
+    li(`<b>Against Mondrian CP</b>, CondKGCP's conditional sets are ${ratio(S.cond.mondrian)} as large (geometric mean; smaller in ${of(S.smaller.mondrian)} cases) and its mean sets ${ratio(S.size.mondrian)}. Its CovGap is ${f3(S.covgap.condkgcp)} on average against ${f3(S.covgap.mondrian)}: lower in ${of(S.lower.mondrian)} cases, at most 0.01 higher in ${of(S.close)}.`);
+    li(`<b>Against marginal CP</b>, its CovGap is ${f3(S.covgap.condkgcp)} against ${f3(S.covgap.marginal)}, lower in ${of(S.lower.marginal)} cases, with conditional sets ${ratio(S.cond.marginal)} as large and mean sets ${ratio(S.size.marginal)}.`);
+    const byDs = d3.groups(ps, (p) => p.d.label).map(([label, list]) => {
+      const T = summary(list);
+      return `<b>${esc(label)}</b>: conditional sets ${ratio(T.cond.mondrian)} Mondrian's, CovGap ${f3(T.covgap.condkgcp)} / ${f3(T.covgap.mondrian)} / ${f3(T.covgap.marginal)}`;
+    });
+    if (byDs.length > 1) li(`${byDs.join("; ")} (CondKGCP / Mondrian / marginal).`);
+    const byModel = d3.groups(ps, (p) => p.ds).map(([ds, list]) => ({ ds, S: summary(list) }));
+    if (byModel.length > 1) {
+      const name = (m) => `${DATA.models[m.ds].label} ${DATA.models[m.ds].model_label}`;
+      const bySize = d3.sort(byModel, (m) => m.S.cond.mondrian), byGap = d3.sort(byModel, (m) => m.S.covgap.condkgcp - m.S.covgap.mondrian);
+      const gap = (m) => d3.format("+.3f")(m.S.covgap.condkgcp - m.S.covgap.mondrian);
+      li(`<b>By model</b>: against Mondrian, conditional sets range from ${ratio(bySize[0].S.cond.mondrian)} (${esc(name(bySize[0]))}) to ${ratio(bySize.at(-1).S.cond.mondrian)} (${esc(name(bySize.at(-1)))}), and the mean CovGap difference from ${gap(byGap[0])} (${esc(name(byGap[0]))}) to ${gap(byGap.at(-1))} (${esc(name(byGap.at(-1)))}).`);
+    }
+    const fallbacks = d3.rollups(ps.filter((p) => p.fallback), (v) => v.length, (p) => p.alpha).sort((a, b) => a[0] - b[0]);
+    li(`<b>Selection</b>: the validation pick is on the test Pareto front in ${of(S.front)} cases. ` +
+      (S.fallback ? `In ${S.fallback} (${fallbacks.map(([a, k]) => `${k} at α ${a}`).join(", ")}), no setting met the coverage floor on validation, and the pick is the setting with the highest coverage.` : "Every pick met the coverage floor on validation."));
+  }
+
+  function drawVs(id, ps, ref, c) {
+    const el = document.getElementById(id);
+    el.innerHTML = "";
+    if (!ps.length) return;
+    const name = ref === "mondrian" ? "Mondrian" : "marginal";
+    const W = el.clientWidth, H = Math.round(Math.max(280, Math.min(380, W * 0.66)));
+    const m = { l: 56, r: 14, t: 26, b: 42 };
+    const svg = d3.select(el).append("svg").attr("viewBox", `0 0 ${W} ${H}`).attr("width", "100%").attr("height", H).attr("role", "img")
+      .attr("aria-label", `CondKGCP's picks against ${name} CP: set size ratio and CovGap difference`);
+    const dx = (p) => p.pick.cond_size / p[ref].cond_size, dy = (p) => p.pick.covgap - p[ref].covgap;
+    const [x0, x1] = d3.extent([...ps.map(dx), 1]), [y0, y1] = d3.extent([...ps.map(dy), 0]);
+    const pad = (y1 - y0) * 0.08 || 0.01;
+    const x = d3.scaleLog().domain([x0 / 1.3, x1 * 1.3]).range([m.l, W - m.r]);
+    const y = d3.scaleLinear().domain([y0 - pad, y1 + pad]).range([H - m.b, m.t]);
+    svg.append("rect").attr("x", m.l).attr("y", y(0)).attr("width", Math.max(0, x(1) - m.l)).attr("height", Math.max(0, H - m.b - y(0))).attr("fill", c["accent-soft"]);
+    const ax = svg.append("g").attr("class", "axis").attr("transform", `translate(0,${H - m.b})`).call(d3.axisBottom(x).ticks(Math.max(2, Math.floor(W / 90)), "~g").tickSizeOuter(0));
+    const ay = svg.append("g").attr("class", "axis").attr("transform", `translate(${m.l},0)`).call(d3.axisLeft(y).ticks(6).tickFormat((v) => (v === 0 ? "0" : d3.format("+.3~f")(v))).tickSizeOuter(0));
+    ax.selectAll(".tick line").clone().attr("class", "gridline").attr("y2", -(H - m.t - m.b));
+    ay.selectAll(".tick line").clone().attr("class", "gridline").attr("x2", W - m.l - m.r);
+    svg.append("line").attr("x1", x(1)).attr("x2", x(1)).attr("y1", m.t).attr("y2", H - m.b).attr("stroke", c.muted).attr("stroke-dasharray", "3 3");
+    svg.append("line").attr("x1", m.l).attr("x2", W - m.r).attr("y1", y(0)).attr("y2", y(0)).attr("stroke", c.muted).attr("stroke-dasharray", "3 3");
+    svg.append("text").attr("class", "title").attr("x", W - m.r).attr("y", H - 6).attr("text-anchor", "end").text(`cond. set size, CondKGCP ÷ ${name} (log) →`);
+    svg.append("text").attr("class", "title").attr("x", m.l - 50).attr("y", 12).text(`CovGap, CondKGCP − ${name} ↑`);
+
+    const datasets = [...new Set(Object.values(DATA.models).map((d) => d.dataset))];
+    const shape = (p) => [d3.symbolCircle, d3.symbolSquare, d3.symbolTriangle][Math.min(2, datasets.indexOf(p.d.dataset))];
+    const current = (p) => p.ds === state.ds;
+    const ordered = [...ps.filter((p) => !current(p)), ...ps.filter(current)];
+    svg.append("g").selectAll("path").data(ordered).join("path")
+      .attr("transform", (p) => `translate(${x(dx(p))},${y(dy(p))})`).attr("d", (p) => d3.symbol(shape(p), current(p) ? 54 : 36)())
+      .attr("fill", (p) => (current(p) ? c.accent : c.dominated)).attr("opacity", (p) => (current(p) ? 0.95 : 0.6))
+      .attr("stroke", c.panel).attr("stroke-width", 0.7).style("cursor", "pointer")
+      .on("pointermove", (ev, p) => {
+        tip.innerHTML = `<b>${esc(caseName(p))}</b><br><span class="muted">${esc(setting(p.pick))}${p.fallback ? " · fallback" : ""}</span>
+          <dl><dt></dt><dd>CondKGCP · ${name}</dd><dt>CovGap</dt><dd>${f3(p.pick.covgap)} · ${f3(p[ref].covgap)}</dd><dt>cond. size</dt><dd>${size(p.pick.cond_size)} · ${size(p[ref].cond_size)}</dd><dt>mean size</dt><dd>${size(p.pick.size)} · ${size(p[ref].size)}</dd></dl>`;
+        placeTip(ev);
+      })
+      .on("pointerleave", unhover).on("click", (ev, p) => show(p.ds, p.score, p.alpha));
+    const now = ps.find((p) => current(p) && p.score === state.score && p.alpha === state.alpha);
+    if (now) svg.append("circle").attr("cx", x(dx(now))).attr("cy", y(dy(now))).attr("r", 8.5).attr("fill", "none").attr("stroke", c.ink).attr("stroke-width", 1.8).style("pointer-events", "none");
+  }
+
+  function drawVsLegend(ps, c) {
+    const L = d3.select("#vs-legend");
+    L.html("");
+    if (!ps.length) return;
+    const item = (svgText, text) => L.append("span").attr("class", "item").html(`${svgText}<span>${esc(text)}</span>`);
+    const datasets = [...new Set(Object.values(DATA.models).map((d) => d.dataset))];
+    datasets.slice(0, 3).forEach((dataset, i) => {
+      const label = Object.values(DATA.models).find((d) => d.dataset === dataset).label;
+      item(`<svg width="12" height="12" viewBox="-6 -6 12 12"><path d="${d3.symbol([d3.symbolCircle, d3.symbolSquare, d3.symbolTriangle][i], 40)()}" fill="${c.dominated}"></path></svg>`, label);
+    });
+    const d = DATA.models[state.ds];
+    item(`<svg width="12" height="12" viewBox="-6 -6 12 12"><circle r="4" fill="${c.accent}"></circle></svg>`, `${d.label} ${d.model_label}, the model above`);
+    item(`<svg width="18" height="18" viewBox="-9 -9 18 18"><circle r="7" fill="none" stroke="${c.ink}" stroke-width="1.8"></circle></svg>`, "the case above");
+    item(`<svg width="22" height="12"><rect width="22" height="12" fill="${c["accent-soft"]}"></rect></svg>`, "smaller sets and lower CovGap");
+  }
+
+  function drawOverview(ps) {
+    const T = d3.select("#overview");
+    T.html("");
+    if (!ps.length) return;
+    const head = T.append("thead");
+    const h1 = head.append("tr");
+    h1.append("th").attr("colspan", 3);
+    for (const [t, n] of [["Mean CovGap", 3], ["Cond. set size ÷", 2], ["Mean set size ÷", 2], ["CovGap lower than", 2], ["Validation picks", 2]]) h1.append("th").attr("class", "group").attr("colspan", n).text(t);
+    const h2 = head.append("tr");
+    const cols = [["Data"], ["Model"], ["Cases"], ["CondKGCP", 1], ["Mondrian"], ["marginal"], ["Mondrian", 1], ["marginal"], ["Mondrian", 1], ["marginal"], ["Mondrian", 1], ["marginal"], ["on test front", 1], ["fallbacks"]];
+    for (const [t, g] of cols) h2.append("th").attr("class", g ? "group" : null).text(t);
+    const body = T.append("tbody");
+    const row = (S, ds) => {
+      const tr = body.append("tr");
+      if (ds) {
+        tr.attr("tabindex", 0).attr("aria-current", String(ds === state.ds)).on("click", () => show(ds)).on("keydown", (ev) => { if (ev.key === "Enter") show(ds); });
+        tr.append("td").text(DATA.models[ds].label);
+        tr.append("td").text(DATA.models[ds].model_label);
+      } else {
+        tr.attr("class", "total");
+        tr.append("td").text("All");
+        tr.append("td");
+      }
+      tr.append("td").text(S.n);
+      const best = Math.min(S.covgap.condkgcp, S.covgap.mondrian, S.covgap.marginal);
+      for (const k of ["condkgcp", "mondrian", "marginal"]) tr.append("td").attr("class", `${k === "condkgcp" ? "group" : ""}${S.covgap[k] === best ? " best" : ""}`).text(f3(S.covgap[k]));
+      for (const part of ["cond", "size", "lower"]) {
+        for (const k of ["mondrian", "marginal"]) tr.append("td").attr("class", k === "mondrian" ? "group" : null).text(part === "lower" ? S.lower[k] : ratio(S[part][k]));
+      }
+      tr.append("td").attr("class", "group").text(S.front);
+      tr.append("td").attr("class", S.fallback ? "fallback" : "dim").text(S.fallback);
+    };
+    const models = d3.groups(ps, (p) => p.ds);
+    for (const [ds, list] of models) row(summary(list), ds);
+    if (models.length > 1) row(summary(ps), null);
+    document.getElementById("overview-caption").textContent =
+      `A case is a model, a score function and an α (the Cases control above restricts them); CondKGCP's setting is picked on validation at δ = ${f3(state.tol)}. ` +
+      `Mean CovGap: over the cases (blue: the lowest of the three). Set sizes: geometric mean over the cases of CondKGCP's size divided by the other method's. ` +
+      `CovGap lower than: the cases in which CondKGCP's CovGap is lower. On test front: the validation pick is on the Pareto front of the test results. Fallbacks: no setting met the coverage floor on validation. Click a row or a point to show it above.`;
+  }
+
   // ---- controls and page ----
   function seg(id, options, key) {
     const el = document.getElementById(id);
@@ -533,6 +723,7 @@ footer { font-size: 12.5px; color: var(--muted); display: grid; gap: 6px; border
     seg("c-model", models.filter((m) => m.dataset === d.dataset).map((m) => ({ value: keyOf(m.dataset, m.model), label: m.model_label })), "ds");
     seg("c-score", SCORES.map((s) => ({ value: s, label: SCORE_LABEL[s] })), "score");
     seg("c-alpha", ALPHAS.map((a) => ({ value: a, label: String(a) })), "alpha");
+    seg("c-cases", [{ value: "all", label: "All" }, { value: "score", label: SCORE_LABEL[state.score] }, { value: "alpha", label: `α = ${state.alpha}` }], "cases");
     seg("c-split", [{ value: "valid", label: `Validation (${d.splits.valid} splits)` }, { value: "test", label: `Test (${d.splits.test} splits)`, disabled: !hasSplit(state.ds, "test") }], "split");
     tolInput.value = state.tol;
     document.getElementById("c-tol-val").textContent = f3(state.tol);
@@ -541,13 +732,19 @@ footer { font-size: 12.5px; color: var(--muted); display: grid; gap: 6px; border
     const an = analyse(state.ds, state.split, state.score, state.alpha, state.tol);
     const valAn = analyse(state.ds, "valid", state.score, state.alpha, state.tol);
     document.getElementById("intro").textContent =
-      `${d.label} · ${d.model_label} · ${SCORE_LABEL[state.score]} · α = ${state.alpha} · ${state.split === "valid" ? "validation" : "test"}. The ${an.settings.length} CondKGCP settings (${d.grid[String(state.alpha)].length} values of φ × ${GAMMAS.length} of γ), drawn twice: by their two metrics, CovGap and conditional set size (mean over relations), and by their two hyperparameters. Hover over a setting in either diagram to find it in the other.`;
+      `${d.label} · ${d.model_label} · ${SCORE_LABEL[state.score]} · α = ${state.alpha} · ${state.split === "valid" ? "validation" : "test"}. The ${an.settings.length} CondKGCP settings (${d.grid[String(state.alpha)].length} values of φ × ${GAMMAS.length} of γ), drawn twice: by their two metrics, CovGap and conditional set size (mean over relations), and by their two hyperparameters. Hover over a setting in either diagram to find it in the other. The last section sums up the picks of all ${models.length} models.`;
     links.length = 0;
     const c = colors();
     drawSteps(an, valAn);
     drawPareto(an, valAn, c);
     drawGrid(an, valAn, c);
     drawResults();
+    const ps = picks();
+    drawFindings(ps);
+    drawVs("vs-mondrian", ps, "mondrian", c);
+    drawVs("vs-marginal", ps, "marginal", c);
+    drawVsLegend(ps, c);
+    drawOverview(ps);
     document.getElementById("footer").innerHTML =
       `<p>At δ = ${DATA.tolerance}, the picks in this page match the run's in <span class="badge" style="color:${agree === checked ? "var(--accent)" : "var(--warn)"}">${agree} of ${checked}</span> cases.</p>
       <p>Validation: ${d.splits.valid} random splits of the validation queries, with calibration sets as large as the test halves. Test: the same settings on ${d.splits.test} random halves of the test queries; there the front and band come from the test results, and the ring marks the setting picked on validation. Relations count when they have at least 10 distinct queries.</p>`;

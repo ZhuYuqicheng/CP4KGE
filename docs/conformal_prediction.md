@@ -338,11 +338,16 @@ validation and on test and writes a page to review the search
 ([results/conformal/libkge/condkgcp-search.html](../results/conformal/libkge/condkgcp-search.html),
 to open in a browser): per dataset, model, score function and α, the steps of the rule,
 the Pareto front, the settings by `min_size` and γ, and the selected settings on test
-against Mondrian and marginal CP. So far it holds DistMult on WN18 and FB15k. There, over
-the six scores and three α, the selected settings' sets per relation are 0.16× and 0.04×
-as large as Mondrian CP's (geometric mean on test), for a mean CovGap of 0.023 and 0.033,
-against Mondrian's 0.015 and 0.031 and marginal CP's 0.057 and 0.090: CondKGCP trades a
-little of Mondrian's conditional coverage for much smaller sets.
+against Mondrian and marginal CP. It holds LibKGE's six models (RESCAL, TransE, DistMult,
+ComplEx, ConvE, RotatE) on WN18 and FB15k. Over the six scores and three α, the selected
+settings' sets per relation are 0.18× (WN18) and 0.05× (FB15k) as large as Mondrian CP's
+(geometric mean on test), for a mean CovGap of 0.023 and 0.038, against Mondrian's 0.016
+and 0.030 and marginal CP's 0.076 and 0.101. Of the 216 cases, CondKGCP's CovGap is
+lower than Mondrian's in 37 and at most 0.01 higher in 148: CondKGCP trades a little of
+Mondrian's conditional coverage for much smaller sets. The gain is smallest for ComplEx
+on WN18 (0.55× Mondrian's sets) and largest on FB15k, where Mondrian gives the full
+entity set to the many relations with too few calibration queries for a finite
+threshold (fewer than 1/α − 1).
 
 **Calibration splits.** Test queries, not triples, are split at random. A triple's head
 and tail queries are correlated (correlation 0.59 for Softmax with DistMult on Nations;
@@ -406,7 +411,7 @@ datasets and three models) runs in about 2 minutes on a laptop CPU.
 ```bash
 uv run scripts/conformal.py  # the tuned models in models/
 uv run scripts/conformal.py --calibration valid
-uv run scripts/condkgcp_search.py models/libkge/wn18-distmult.pt models/libkge/fb15k-distmult.pt
+uv run scripts/condkgcp_search.py models/libkge/wn18-*.pt models/libkge/fb15k-*.pt  # or on Modal: cloud/modal/README.md
 uv run pytest
 ```
 
