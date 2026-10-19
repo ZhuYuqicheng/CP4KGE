@@ -20,7 +20,8 @@ five (seeds 0–4) are kept, as kgcp evaluates 5 models per model and dataset el
 
 **Status:** the 60 models of seeds 0–4 converted and verified (see
 [Verification](#verification)), in `models/unkgcp/<dataset>-<model>/seed<N>.pt` (843 MB,
-git-ignored).
+git-ignored). Their conformal prediction intervals:
+[docs/prediction_intervals.md](../../docs/prediction_intervals.md).
 
 ## Layout
 

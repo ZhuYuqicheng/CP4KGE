@@ -1,4 +1,4 @@
-"""Nonconformity scores of candidate answers: lower means more plausible.
+"""Nonconformity scores of candidate answers, lower means more plausible; and answer sets.
 
 A score function maps a batch of logits [B, E] (higher = more plausible; -inf for
 filtered candidates) to nonconformity scores [B, E]. Randomized scores draw from the
@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 import torch
 from torch import Tensor
 
-from kgcp.data import KnownAnswers, Queries
+from kgcp.data import KnownAnswers, Queries, _Split
 
 if TYPE_CHECKING:
     from kgcp.backends import KGEModel
@@ -92,13 +92,17 @@ class Rank:
 
 
 @dataclass(frozen=True)
-class Scores:
+class Scores(_Split):
     """Nonconformity of every candidate entity for each query: [n, E] `values`.
 
     Filtered candidates score +inf and never enter a prediction set. Subsets of the
     queries (indexing, `split`) share the score matrices: they hold their rows' indices.
     Without `matrix` (half the memory), coverage and set sizes are available, but not
     `values` or the sets' masks.
+
+    `split` splits the queries individually, which keeps them exchangeable. The head and
+    tail query of a triple are correlated, so splitting by triple would weaken the
+    guarantee to ceil((n + 1)(1 - alpha)) / (n + 2).
     """
 
     queries: Queries
@@ -155,16 +159,37 @@ class Scores:
         below = torch.nextafter(above, torch.full_like(above, -torch.inf))
         return torch.where(k < num_candidates, below, torch.inf)
 
-    def split(self, fraction: float = 0.5, generator: torch.Generator | None = None):
-        """Random split of the queries, `fraction` of them into the first part.
+    def predict(self, thresholds: Tensor) -> PredictionSets:
+        """The answer sets of the queries' score thresholds [n]."""
+        return PredictionSets(self, thresholds)
 
-        Queries are split individually, which keeps them exchangeable. The head and tail
-        query of a triple are correlated, so splitting by triple would weaken the
-        guarantee to ceil((n + 1)(1 - alpha)) / (n + 2).
-        """
-        first = torch.zeros(len(self), dtype=torch.bool)
-        first[torch.randperm(len(self), generator=generator)[: round(fraction * len(self))]] = True
-        return self[first], self[~first]
+
+@dataclass(frozen=True)
+class PredictionSets:
+    """Answer sets: the candidates whose score is at most their query's threshold."""
+
+    scores: Scores
+    thresholds: Tensor  # [n]
+
+    @property
+    def queries(self) -> Queries:
+        return self.scores.queries
+
+    @property
+    def mask(self) -> Tensor:
+        """[n, E] bool over the candidate entities."""
+        values = self.scores.values
+        return (values <= self.thresholds[:, None]) & values.isfinite()
+
+    @property
+    def covered(self) -> Tensor:
+        """[n] bool: the set contains the query's target."""
+        true = self.scores.true
+        return (true <= self.thresholds) & true.isfinite()
+
+    @property
+    def size(self) -> Tensor:
+        return self.scores.count(self.thresholds)
 
 
 @torch.no_grad()

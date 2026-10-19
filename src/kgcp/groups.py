@@ -1,7 +1,8 @@
 """Groupings of queries for group-conditional calibration: queries -> [n] group ids.
 
 A grouping is fixed (a function of the queries), or learned from the calibration data:
-an object whose `fit(calibration)` returns the grouping to use.
+an object whose `fit(calibration)` returns the grouping to use. Groupings by relation also
+group the triples of uncertain knowledge graphs (`UncertainTriples`).
 """
 
 from __future__ import annotations
@@ -13,26 +14,27 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 import torch
 from torch import Tensor
 
-from kgcp.data import Queries
+from kgcp.data import Queries, UncertainTriples
 
 if TYPE_CHECKING:
+    from kgcp.intervals import Residuals
     from kgcp.scores import Scores
 
-Grouping = Callable[[Queries], Tensor]
+Grouping = Callable[[Queries | UncertainTriples], Tensor]
 
 
 @runtime_checkable
 class LearnedGrouping(Protocol):
-    def fit(self, calibration: Scores) -> Grouping:
+    def fit(self, calibration: Scores | Residuals) -> Grouping:
         """The grouping for these calibration scores."""
         ...
 
 
-def marginal(queries: Queries) -> Tensor:
+def marginal(queries: Queries | UncertainTriples) -> Tensor:
     return torch.zeros_like(queries.relation)
 
 
-def by_relation(queries: Queries) -> Tensor:
+def by_relation(queries: Queries | UncertainTriples) -> Tensor:
     return queries.relation
 
 
@@ -46,7 +48,7 @@ class RelationGroups:
 
     table: Tensor  # [R] long
 
-    def __call__(self, queries: Queries) -> Tensor:
+    def __call__(self, queries: Queries | UncertainTriples) -> Tensor:
         return self.table[queries.relation]
 
 
@@ -64,7 +66,7 @@ class MergedRelations:
         embeddings = embeddings.float()
         self.distances = torch.cdist(embeddings, embeddings, p=1)  # [R, R], once per model
 
-    def fit(self, calibration: Scores) -> RelationGroups:
+    def fit(self, calibration: Scores | Residuals) -> RelationGroups:
         num_relations = len(self.distances)
         counts = torch.bincount(calibration.queries.relation, minlength=num_relations)
         large = counts >= self.min_size
