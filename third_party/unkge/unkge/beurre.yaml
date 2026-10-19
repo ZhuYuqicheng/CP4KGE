@@ -1,0 +1,16 @@
+import: [lookup_embedder]
+
+beurre:
+  class_name: BEUrRE
+
+  # temperature of the Gumbel boxes
+  gumbel_beta: 0.01
+
+  # dim: 2d, the lower corner and the log width of each entity's box
+  entity_embedder:
+    type: lookup_embedder
+    +++: +++
+  # dim: 4d, the translation and scale of the head's and of the tail's box
+  relation_embedder:
+    type: lookup_embedder
+    +++: +++

@@ -1,0 +1,14 @@
+import: [lookup_embedder]
+
+ukge:
+  class_name: UKGE
+
+  # logi: confidence = sigmoid(w <s, p, o> + b); rect: confidence = clamp(w <s, p, o> + b, 0, 1)
+  output: logi
+
+  entity_embedder:
+    type: lookup_embedder
+    +++: +++
+  relation_embedder:
+    type: lookup_embedder
+    +++: +++
