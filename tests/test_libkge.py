@@ -56,6 +56,7 @@ def test_graph():
     kg = load("nations-distmult", 1).kg
     assert (kg.name, kg.num_entities, kg.num_relations) == ("nations", 14, 55)
     assert [len(kg.split(s)) for s in ("train", "valid", "test")] == [1592, 199, 201]
+    assert kg.confidences == {}  # not an uncertain knowledge graph
 
 
 @pytest.mark.parametrize("seed", SEEDS)

@@ -3,6 +3,8 @@
 `kgcp` turns the scores of a trained knowledge graph embedding (KGE) model into answer sets that contain the true answer with a chosen
 probability (e.g. 90%). Models are trained with [LibKGE](https://github.com/uma-pi1/kge),
 patched for recent PyTorch and Apple Silicon; other pipelines can plug in their scores.
+For uncertain knowledge graphs, it turns a model's predicted confidence of a triple into
+an interval that contains the true confidence with a chosen probability.
 
 ## Layout
 
@@ -130,6 +132,39 @@ coverage is 0.90 too. With Softmax, the sets are small on WN18 and FB15k (1.1 to
 3,900 to 21,800 of the 40,943 entities on WN18RR, 240 to 310 of the 14,541 on FB15k-237.
 [notebooks/02_benchmarks.ipynb](notebooks/02_benchmarks.ipynb) shows the results
 (`results/conformal/libkge/`) and explains the difference.
+
+### Intervals for uncertain knowledge graphs
+
+In an uncertain knowledge graph (CN15k, NL27k, PPI5k), each triple has a confidence in
+[0, 1]. With the models of UnKGCP (Zhu, Wu et al., EMNLP 2025), converted to LibKGE in
+[third_party/unkge](third_party/unkge/README.md):
+
+```python
+model = kgcp.LibKGE("models/unkgcp/nl27k-beurre/seed0.pt")
+test = model.kg.uncertain_triples("test")  # (h, r, t) and confidence c
+
+# nonconformity |c - M| / H(M) of the predicted confidence M (UnKGCP);
+# kgcp.AbsoluteResidual() gives |c - M| (plain CP)
+residuals = kgcp.residuals(model, test, kgcp.EntropyResidual())
+cal, test = residuals.split(0.5)
+intervals = kgcp.SplitConformal(alpha=0.1).calibrate(cal).predict(test)
+intervals.lower, intervals.upper  # M ± q H(M), within [0, 1]
+kgcp.evaluate_intervals(intervals, alpha=0.1)  # coverage, width, per-relation coverage gaps
+```
+
+`MondrianConformal` calibrates per relation here too. At α = 0.1, calibrated on random
+halves of the test triples (5 seeds × 100 splits), coverage is 0.90 for every model, with
+these mean interval widths (CP / UnKGCP):
+
+| Dataset | UKGE | PASSLEAF | BEUrRE |
+|---|---|---|---|
+| CN15k | 0.845 / 0.917 | 0.861 / 0.926 | 0.864 / 0.893 |
+| NL27k | 0.452 / 0.370 | 0.542 / 0.435 | 0.426 / 0.389 |
+| PPI5k | 0.184 / 0.183 | 0.202 / 0.198 | 0.249 / 0.257 |
+
+See [docs/prediction_intervals.md](docs/prediction_intervals.md) for the method, the
+protocol, per-relation results and the comparison with the paper, reproduced with
+`uv run scripts/intervals.py`.
 
 Run the tests with `uv run pytest` (the LibKGE tests need the [trained models](#trained-models)).
 

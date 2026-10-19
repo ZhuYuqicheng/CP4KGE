@@ -9,7 +9,7 @@ from typing import Protocol
 import torch
 from torch import Tensor
 
-from kgcp.data import KG, TAIL, Queries
+from kgcp.data import KG, TAIL, Queries, UncertainTriples
 
 
 class KGEModel(Protocol):
@@ -24,6 +24,16 @@ class KGEModel(Protocol):
         ...
 
 
+class ConfidenceModel(Protocol):
+    """A model of an uncertain knowledge graph: it predicts the confidence of triples."""
+
+    kg: KG
+
+    def confidence(self, triples: UncertainTriples) -> Tensor:
+        """[m] predicted confidence in [0, 1] of the triples."""
+        ...
+
+
 class LibKGE:
     """A trained LibKGE model, from a checkpoint or packaged model file (such as
     models/<dataset>-<model>/seed<N>.pt), or a training folder.
@@ -34,6 +44,10 @@ class LibKGE:
     Checkpoints of older LibKGE versions (such as LibKGE's published models of
     2019-2020) load too: their options are read into today's configuration, and options
     that LibKGE no longer has are kept but unused.
+
+    Models of uncertain knowledge graphs (UKGE, PASSLEAF and BEUrRE of third_party/unkge)
+    also predict confidences, and their dataset's splits have a fourth column, the
+    confidence of each triple (`kg.confidences`).
     """
 
     def __init__(self, checkpoint: str | Path, device: str = "auto"):
@@ -64,11 +78,13 @@ class LibKGE:
         self.model.eval()
         self.device = config.get("job.device")
 
+        splits = {s: dataset.split(s).long() for s in ("train", "valid", "test")}
         self.kg = KG(
             name=dataset.config.get("dataset.name"),
-            splits={s: dataset.split(s).long() for s in ("train", "valid", "test")},
+            splits=splits,
             entities=list(dataset.entity_ids()),
             relations=list(dataset.relation_ids()),
+            confidences=_confidences(dataset, splits),
         )
 
     @torch.no_grad()
@@ -83,6 +99,15 @@ class LibKGE:
         return logits
 
     @torch.no_grad()
+    def confidence(self, triples: UncertainTriples) -> Tensor:
+        """[m] predicted confidence of the triples, on the model's device; for models of
+        uncertain knowledge graphs."""
+        if not hasattr(self.model, "confidence"):
+            raise TypeError(f"{type(self.model).__name__} models predict no confidences")
+        s, p, o = (x.to(self.device) for x in (triples.head, triples.relation, triples.tail))
+        return self.model.confidence(s, p, o)
+
+    @torch.no_grad()
     def relation_embeddings(self) -> Tensor:
         """[R, d] relation embeddings as the model stores them (e.g. real and imaginary
         parts for ComplEx, flattened matrices for RESCAL), on the CPU. With reciprocal
@@ -94,6 +119,23 @@ class LibKGE:
         if isinstance(self.model, ReciprocalRelationsModel):
             embeddings = torch.cat([embeddings[:num_relations], embeddings[num_relations:]], 1)
         return embeddings.reshape(num_relations, -1).float().cpu()
+
+
+def _confidences(dataset, splits: dict[str, Tensor]) -> dict[str, Tensor]:
+    """[m] confidences of the splits whose files have a fourth column: the confidence of
+    each triple in an uncertain knowledge graph. LibKGE reads only the first three."""
+    confidences = {}
+    for split, triples in splits.items():
+        file = Path(dataset.folder) / dataset.config.get(f"dataset.files.{split}.filename")
+        with open(file) as f:
+            if len(f.readline().rstrip("\n").split("\t")) < 4:
+                continue
+            f.seek(0)
+            values = [float(line.split("\t")[3]) for line in f]
+        if len(values) != len(triples):
+            raise ValueError(f"{file}: {len(values)} confidences for {len(triples)} triples")
+        confidences[split] = torch.tensor(values, dtype=torch.float64)
+    return confidences
 
 
 def _use_existing_dataset_files(config) -> None:

@@ -1,18 +1,20 @@
-"""Split conformal prediction of answer sets: marginal, per group of queries (Mondrian),
-and CondKGCP."""
+"""Split conformal prediction: marginal, per group of queries (Mondrian), and CondKGCP.
+
+Predictors calibrate thresholds of nonconformity scores, and predict answer sets
+(`Scores`) or intervals for the confidences of triples (`Residuals`).
+"""
 
 from __future__ import annotations
 
 import math
 from collections.abc import Iterator
-from dataclasses import dataclass
 
 import torch
 from torch import Tensor
 
-from kgcp.data import Queries
 from kgcp.groups import Grouping, LearnedGrouping, by_relation, marginal
-from kgcp.scores import Scores
+from kgcp.intervals import PredictionIntervals, Residuals
+from kgcp.scores import PredictionSets, Scores
 
 
 def conformal_quantile(scores: Tensor, alpha: float) -> float:
@@ -25,37 +27,10 @@ def conformal_quantile(scores: Tensor, alpha: float) -> float:
     return scores.kthvalue(k).values.item() if k <= n else math.inf
 
 
-@dataclass(frozen=True)
-class PredictionSets:
-    """Answer sets: the candidates whose score is at most their query's threshold."""
-
-    scores: Scores
-    thresholds: Tensor  # [n]
-
-    @property
-    def queries(self) -> Queries:
-        return self.scores.queries
-
-    @property
-    def mask(self) -> Tensor:
-        """[n, E] bool over the candidate entities."""
-        values = self.scores.values
-        return (values <= self.thresholds[:, None]) & values.isfinite()
-
-    @property
-    def covered(self) -> Tensor:
-        """[n] bool: the set contains the query's target."""
-        true = self.scores.true
-        return (true <= self.thresholds) & true.isfinite()
-
-    @property
-    def size(self) -> Tensor:
-        return self.scores.count(self.thresholds)
-
-
 class SplitConformal:
     """Split conformal prediction: one threshold for all queries, the conformal quantile
-    of the calibration scores. Sets cover the target with probability >= 1 - alpha.
+    of the calibration scores. Predictions (answer sets, or intervals) cover the target
+    with probability >= 1 - alpha.
 
     Subclasses change how queries are grouped (`_partition`), what is calibrated per
     group (`_calibrate`), and the threshold of each query (`_thresholds`).
@@ -66,27 +41,28 @@ class SplitConformal:
         self.grouping: Grouping = marginal  # of the last calibration
         self.thresholds: dict[int, float] = {}  # group -> score threshold
 
-    def calibrate(self, scores: Scores) -> SplitConformal:
+    def calibrate(self, scores: Scores | Residuals) -> SplitConformal:
         self.grouping = self._partition(scores)
         self._calibrate(scores, self.grouping(scores.queries))
         return self
 
-    def predict(self, scores: Scores) -> PredictionSets:
-        return PredictionSets(scores, self._thresholds(scores, self.grouping(scores.queries)))
+    def predict(self, scores: Scores | Residuals) -> PredictionSets | PredictionIntervals:
+        return scores.predict(self._thresholds(scores, self.grouping(scores.queries)))
 
-    def _partition(self, calibration: Scores) -> Grouping:
+    def _partition(self, calibration: Scores | Residuals) -> Grouping:
         return marginal
 
-    def _calibrate(self, scores: Scores, groups: Tensor) -> None:
+    def _calibrate(self, scores: Scores | Residuals, groups: Tensor) -> None:
         self.thresholds = {
             group: conformal_quantile(true, self.alpha)
             for group, true in _by_group(groups, scores.true)
         }
 
-    def _thresholds(self, scores: Scores, groups: Tensor) -> Tensor:
+    def _thresholds(self, scores: Scores | Residuals, groups: Tensor) -> Tensor:
         """[n] score threshold of each query; +inf (all candidates) for groups without
         calibration queries."""
-        return torch.tensor([self.thresholds.get(g, math.inf) for g in groups.tolist()])
+        thresholds = [self.thresholds.get(g, math.inf) for g in groups.tolist()]
+        return torch.tensor(thresholds, dtype=scores.true.dtype)
 
 
 class MondrianConformal(SplitConformal):
@@ -102,7 +78,7 @@ class MondrianConformal(SplitConformal):
         super().__init__(alpha)
         self.groups = groups
 
-    def _partition(self, calibration: Scores) -> Grouping:
+    def _partition(self, calibration: Scores | Residuals) -> Grouping:
         if isinstance(self.groups, LearnedGrouping):
             return self.groups.fit(calibration)
         return self.groups
@@ -131,6 +107,8 @@ class CondKGCP(MondrianConformal):
         self.top_k_miscoverage: dict[int, float] = {}  # group -> eps(g)
 
     def _calibrate(self, scores: Scores, groups: Tensor) -> None:
+        if not isinstance(scores, Scores):
+            raise TypeError("CondKGCP calibrates ranks of answers: it predicts answer sets only")
         ranks = scores.count(scores.true)  # the targets' ranks, ties counted against them
         self.thresholds, self.top_k, self.top_k_miscoverage = {}, {}, {}
         for group, true, rank in _by_group(groups, scores.true, ranks):
