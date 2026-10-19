@@ -18,6 +18,8 @@ scripts/              dataset download, hyperparameter tuning, conformal experim
 tests/                tests of kgcp
 third_party/libkge/   LibKGE (upstream 9bca31f, with patches below)
   data/<dataset>/     preprocessed datasets (downloaded, git-ignored)
+third_party/unkge/    UnKGCP's uncertain-KG models (UKGE, PASSLEAF, BEUrRE) as LibKGE
+                      models, converted into models/unkgcp/ (see its README)
 runs/                 training outputs (git-ignored)
 ```
 
