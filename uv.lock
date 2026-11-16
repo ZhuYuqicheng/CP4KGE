@@ -1560,9 +1560,7 @@ name = "kgcp"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "libkge" },
     { name = "torch" },
-    { name = "unkge" },
 ]
 
 [package.dev-dependencies]
@@ -1578,16 +1576,16 @@ dev = [
     { name = "scipy", version = "1.18.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "tqdm" },
 ]
+libkge = [
+    { name = "libkge" },
+    { name = "unkge" },
+]
 modal = [
     { name = "modal" },
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "libkge", editable = "third_party/libkge" },
-    { name = "torch", specifier = ">=2.0" },
-    { name = "unkge", editable = "third_party/unkge" },
-]
+requires-dist = [{ name = "torch", specifier = ">=2.0" }]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1597,6 +1595,10 @@ dev = [
     { name = "pytest" },
     { name = "scipy", specifier = ">=1.15.3" },
     { name = "tqdm", specifier = ">=4.70.1" },
+]
+libkge = [
+    { name = "libkge", editable = "third_party/libkge" },
+    { name = "unkge", editable = "third_party/unkge" },
 ]
 modal = [{ name = "modal", specifier = ">=1.6.1" }]
 

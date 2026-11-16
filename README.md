@@ -25,14 +25,30 @@ third_party/unkge/    UnKGCP's uncertain-KG models (UKGE, PASSLEAF, BEUrRE) as L
 runs/                 training outputs (git-ignored)
 ```
 
-## Setup
+## Install
 
-Requires [uv](https://docs.astral.sh/uv/). This creates `.venv` with the locked
-dependencies, and `kgcp` and LibKGE installed in editable mode:
+`kgcp` itself needs only PyTorch. To calibrate the scores of your own models, from any
+KGE pipeline (see [scores of another pipeline](#scores-of-another-pipeline)):
 
 ```bash
+pip install "kgcp @ git+https://github.com/ZhuYuqicheng/CP4KGE"
+```
+
+To load LibKGE models, such as the [trained models](#trained-models) below, to train
+models and to rerun the experiments, clone the repository. With
+[uv](https://docs.astral.sh/uv/), this creates `.venv` with the locked dependencies, and
+`kgcp`, LibKGE and the uncertain-KG models of `third_party/unkge` installed in editable
+mode:
+
+```bash
+git clone https://github.com/ZhuYuqicheng/CP4KGE && cd CP4KGE
 uv sync
 ```
+
+LibKGE is not on PyPI, and it reads its datasets from its own folder, so `kgcp.LibKGE`
+works from a clone only (without uv:
+`pip install -e third_party/libkge -e third_party/unkge -e .`). `uv sync --no-group libkge`
+leaves the two packages out.
 
 On Linux x86_64, the locked PyTorch wheel targets CUDA 13. If your GPU driver is
 older, point uv at a matching [PyTorch index](https://docs.astral.sh/uv/guides/integration/pytorch/).
@@ -105,8 +121,26 @@ merged = kgcp.MergedRelations(model.relation_embeddings(), min_size=50)
 cp = kgcp.CondKGCP(alpha=0.1, groups=merged, gamma=0.01).calibrate(cal)
 ```
 
-Another KGE pipeline only needs to provide `[queries, entities]` logits: pass them to
-`nonconformity` instead of a model (and relation embeddings to `MergedRelations`).
+### Scores of another pipeline
+
+Another KGE pipeline only needs to provide `[queries, entities]` logits (higher = more
+plausible): pass them to `nonconformity` instead of a model, and relation embeddings to
+`MergedRelations`. This needs no KGE library, only PyTorch:
+
+```python
+import kgcp
+
+# test and train: [m, 3] id triples (head, relation, tail), of E entities and R relations
+queries = kgcp.Queries.from_triples(test)  # the tail queries, then the head queries
+logits = ...  # [2m, E]: your model's scores of all entities for each of the queries
+known = kgcp.KnownAnswers(train, num_entities=E, num_relations=R)
+scores = kgcp.nonconformity(logits, queries, kgcp.Softmax(), known=known)
+
+cal, test = scores.split(0.5)
+sets = kgcp.SplitConformal(alpha=0.1).calibrate(cal).predict(test)
+```
+
+### Results
 
 At α = 0.1, the tuned models give the following mean set sizes with the Softmax score,
 calibrated on random halves of the test queries (5 seeds × 100 splits; marginal
