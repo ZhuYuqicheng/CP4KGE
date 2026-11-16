@@ -37,8 +37,9 @@ convert_dataset.sh       download, convert and verify one dataset, then delete t
 tests/                   the models on LibKGE's toy dataset
 ```
 
-The package is installed with the project (`uv sync`; it is a path dependency in the
-top-level `pyproject.toml`), so the converted models load wherever `kgcp` is installed.
+The package is installed with the project in a clone (`uv sync`; it is in the `libkge`
+dependency group of the top-level `pyproject.toml`), so the converted models load there
+like any other LibKGE model.
 
 ## The models
 

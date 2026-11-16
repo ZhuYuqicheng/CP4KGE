@@ -1,4 +1,8 @@
-"""KGE models that score all candidate answers of queries."""
+"""KGE models that score all candidate answers of queries.
+
+kgcp needs only PyTorch. A backend imports its KGE library when a model is loaded, so the
+library is needed only by those who use the backend.
+"""
 
 from __future__ import annotations
 
@@ -51,9 +55,16 @@ class LibKGE:
     """
 
     def __init__(self, checkpoint: str | Path, device: str = "auto"):
-        from kge import Config, Dataset
-        from kge.model import KgeModel
-        from kge.util.io import load_checkpoint
+        try:
+            from kge import Config, Dataset
+            from kge.model import KgeModel
+            from kge.util.io import load_checkpoint
+        except ImportError as error:
+            raise ImportError(
+                "kgcp.LibKGE needs LibKGE, which is not on PyPI: it is installed from a clone "
+                "of the kgcp repository, where it finds its datasets, with `uv sync` (or "
+                "`pip install -e third_party/libkge -e third_party/unkge`)"
+            ) from error
 
         path = Path(checkpoint)
         if path.is_dir():
