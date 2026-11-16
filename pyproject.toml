@@ -6,7 +6,7 @@ readme = "README.md"
 authors = [{ name = "Yuqicheng Zhu" }]
 requires-python = ">=3.10"
 # kgcp itself needs only PyTorch: it calibrates the logits (or confidences) of any model.
-# The backends that load models are optional, see [dependency-groups].
+# The backends that load models are optional: the extra below, and [dependency-groups].
 dependencies = ["torch>=2.0"]
 keywords = [
     "knowledge graph embedding",
@@ -21,6 +21,9 @@ classifiers = [
     "Typing :: Typed",
 ]
 
+[project.optional-dependencies]
+pykeen = ["pykeen>=1.10"]  # the PyKEEN backend: kgcp.PyKEEN
+
 [project.urls]
 Repository = "https://github.com/ZhuYuqicheng/CP4KGE"
 Models = "https://huggingface.co/Yuqicheng/KGCP-KGE-Checkpoints"
@@ -30,6 +33,7 @@ dev = [
     "ipykernel>=7.3.0",
     "matplotlib>=3.10.9",
     "optuna>=5.0.0",
+    "pykeen>=1.10",
     "pytest",
     "scipy>=1.15.3",
     "tqdm>=4.70.1",

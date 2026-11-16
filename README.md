@@ -1,8 +1,9 @@
 # KGCP: conformal prediction for knowledge graph embeddings
 
 `kgcp` turns the scores of a trained knowledge graph embedding (KGE) model into answer sets that contain the true answer with a chosen
-probability (e.g. 90%). Models are trained with [LibKGE](https://github.com/uma-pi1/kge),
-patched for recent PyTorch and Apple Silicon; other pipelines can plug in their scores.
+probability (e.g. 90%). It loads models of [LibKGE](https://github.com/uma-pi1/kge)
+(vendored here, patched for recent PyTorch and Apple Silicon) and of
+[PyKEEN](https://github.com/pykeen/pykeen); other pipelines can plug in their scores.
 For uncertain knowledge graphs, it turns a model's predicted confidence of a triple into
 an interval that contains the true confidence with a chosen probability.
 
@@ -32,6 +33,12 @@ KGE pipeline (see [scores of another pipeline](#scores-of-another-pipeline)):
 
 ```bash
 pip install "kgcp @ git+https://github.com/ZhuYuqicheng/CP4KGE"
+```
+
+With the extra `pykeen`, it also installs PyKEEN, for [PyKEEN models](#pykeen-models):
+
+```bash
+pip install "kgcp[pykeen] @ git+https://github.com/ZhuYuqicheng/CP4KGE"
 ```
 
 To load LibKGE models, such as the [trained models](#trained-models) below, to train
@@ -120,6 +127,35 @@ group (`by_relation`, `by_direction`, or relations merged by embedding similarit
 merged = kgcp.MergedRelations(model.relation_embeddings(), min_size=50)
 cp = kgcp.CondKGCP(alpha=0.1, groups=merged, gamma=0.01).calibrate(cal)
 ```
+
+### PyKEEN models
+
+`kgcp.PyKEEN` wraps a trained PyKEEN model and its dataset; everything else is the same
+as for `kgcp.LibKGE`. Nations ships with PyKEEN, so this runs after
+`pip install "kgcp[pykeen] @ ..."` alone, in about a minute on a laptop CPU:
+
+```python
+import kgcp
+from pykeen.datasets import Nations
+from pykeen.pipeline import pipeline
+
+dataset = Nations()
+result = pipeline(dataset=dataset, model="DistMult", training_kwargs={"num_epochs": 200})
+
+model = kgcp.PyKEEN(result.model, dataset)
+kg = model.kg
+queries = kgcp.Queries.from_triples(kg.split("test"))
+scores = kgcp.nonconformity(model, queries, kgcp.Softmax(), known=kg.known("train", "valid"))
+
+cal, test = scores.split(0.5)
+sets = kgcp.SplitConformal(alpha=0.1).calibrate(cal).predict(test)
+kgcp.evaluate(sets, alpha=0.1)  # coverage, set size, per-relation coverage gaps, ...
+[kg.entities[e] for e in sets.mask[0].nonzero().flatten()]  # the answer set of a query
+```
+
+`tests/test_pykeen.py` checks that the filtered ranks of these scores give the metrics of
+PyKEEN's own evaluator, for head and tail queries, also for models trained with inverse
+triples.
 
 ### Scores of another pipeline
 

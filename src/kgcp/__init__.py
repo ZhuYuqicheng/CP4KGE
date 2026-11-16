@@ -1,7 +1,7 @@
 """Conformal prediction for knowledge graph embeddings: answer sets for link prediction
 queries, and intervals for the confidences of triples of uncertain knowledge graphs."""
 
-from kgcp.backends import ConfidenceModel, KGEModel, LibKGE
+from kgcp.backends import ConfidenceModel, KGEModel, LibKGE, PyKEEN
 from kgcp.conformal import CondKGCP, MondrianConformal, SplitConformal, conformal_quantile
 from kgcp.data import HEAD, KG, TAIL, KnownAnswers, Queries, UncertainTriples
 from kgcp.groups import MergedRelations, RelationGroups, by_direction, by_relation, marginal
@@ -42,6 +42,7 @@ __all__ = [
     "Neg",
     "PredictionIntervals",
     "PredictionSets",
+    "PyKEEN",
     "Queries",
     "RAPS",
     "Rank",
