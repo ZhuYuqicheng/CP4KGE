@@ -36,7 +36,7 @@ image = (
     # the same first steps as cloud/modal/app.py, so its environment is reused
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("rsync")
-    .uv_sync(str(ROOT), extra_options="--no-install-package libkge")
+    .uv_sync(str(ROOT), extra_options="--no-install-package libkge --no-install-package unkge")
     .env(
         {
             "PYTHONPATH": f"{CODE}/src:{CODE}/third_party/libkge:{CODE}/scripts",

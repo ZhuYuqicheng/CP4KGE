@@ -26,8 +26,9 @@ SAVE_EVERY = 300  # seconds between two copies of a run folder to the volume
 image = (
     modal.Image.debian_slim(python_version="3.11")
     .apt_install("rsync")
-    # the locked dependencies; libkge and kgcp are imported from the code below
-    .uv_sync(str(ROOT), extra_options="--no-install-package libkge")
+    # the locked dependencies; libkge and kgcp are imported from the code below, and the
+    # local packages of third_party/ are not in the build context
+    .uv_sync(str(ROOT), extra_options="--no-install-package libkge --no-install-package unkge")
     .env(
         {
             "PYTHONPATH": f"{CODE}/src:{CODE}/third_party/libkge",
