@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>KGCP Demo</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="Conformal prediction for knowledge graph embeddings, on real model outputs: answer sets, per-relation guarantees and intervals, recomputed in your browser.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#top">KGCP <span>demo</span></a>
+    <nav aria-label="Sections">
+      <a href="#how">How it works</a>
+      <a href="#try">Playground</a>
+      <a href="#conditional">Per relation</a>
+      <a href="#intervals">Intervals</a>
+      <a href="#use">Use it</a>
+      <a href="https://github.com/ZhuYuqicheng/CP4KGE">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+
+<section class="hero">
+  <div class="wrap hero-grid">
+    <div class="hero-copy">
+      <p class="eyebrow">Conformal prediction for knowledge graph embeddings</p>
+      <h1>A model ranks every answer. KGCP tells you <em>where to stop</em>.</h1>
+      <p class="lead">A knowledge graph embedding model scores every entity as an answer to a query, but a ranking does not say how many of them to trust. KGCP turns the scores of any such model into an answer set that contains the true answer with a probability you choose.</p>
+      <div class="actions">
+        <a class="button primary" href="#how">See how it works</a>
+        <a class="button" href="#try">Try it on real models</a>
+      </div>
+      <p class="note">One library for three papers: answer sets (NAACL 2025), guarantees per relation (Findings of ACL 2025) and intervals for uncertain knowledge graphs (EMNLP 2025). Every number on this page comes from a published model checkpoint and is recomputed in your browser.</p>
+    </div>
+    <div class="panel hero-card" id="hero-card">
+      <div class="panel-head">
+        <span class="eyebrow">Live · UMLS · DistMult</span>
+        <button type="button" class="quiet" id="hero-next">Another query</button>
+      </div>
+      <div class="panel-body">
+        <p class="query" id="hero-query">Loading the model's scores…</p>
+        <div class="dial">
+          <div class="dial-line">
+            <label for="hero-level">Contain the true answer with probability at least</label>
+            <output id="hero-level-out" for="hero-level">90%</output>
+          </div>
+          <input type="range" id="hero-level" min="60" max="99" step="1" value="90">
+        </div>
+        <figure>
+          <div class="stage chart" id="hero-bars"></div>
+          <figcaption id="hero-caption">The model's probability of its top candidates. Everything right of the cut is in the answer set.</figcaption>
+        </figure>
+        <div class="set" id="hero-set" aria-live="polite"></div>
+        <p class="verdict" id="hero-verdict"></p>
+      </div>
+      <div class="ruled" aria-hidden="true"></div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="how">
+  <div class="wrap">
+    <div class="section-head column">
+      <p class="eyebrow">Paper 1 · NAACL 2025 · answer sets</p>
+      <h2>Calibrate once on held-out queries, then cut every ranking at the same score</h2>
+      <p class="lead">Split conformal prediction needs no retraining and no assumption about the model. It needs queries whose answers are known and that the model has not seen: they show how far down its rankings the truth tends to sit.</p>
+      <div class="ruled" aria-hidden="true"></div>
+    </div>
+    <div class="bench">
+      <ol class="steps" id="how-steps" aria-label="Steps of split conformal prediction">
+        <li><button type="button" data-step="1"><span class="n">1</span> Score every candidate</button></li>
+        <li><button type="button" data-step="2"><span class="n">2</span> Look at held-out answers</button></li>
+        <li><button type="button" data-step="3"><span class="n">3</span> Cut at the conformal quantile</button></li>
+        <li><button type="button" data-step="4"><span class="n">4</span> Keep what is left of the cut</button></li>
+      </ol>
+      <div class="panel">
+        <div class="panel-head">
+          <span class="eyebrow">Nations · DistMult · 14 countries, 55 relations</span>
+          <span class="query" id="how-query"></span>
+        </div>
+        <div class="panel-body">
+          <figure>
+            <div class="stage chart" id="how-stage"></div>
+            <figcaption class="caption-live" id="how-caption" aria-live="polite"></figcaption>
+          </figure>
+        </div>
+      </div>
+      <div class="toolbar">
+        <button type="button" class="primary" id="how-play">Play the four steps</button>
+        <div class="field range">
+          <label for="how-level"><span>Coverage target</span><output id="how-level-out" for="how-level">90%</output></label>
+          <input type="range" id="how-level" min="60" max="99" step="1" value="90">
+        </div>
+        <button type="button" id="how-next">Another query</button>
+        <button type="button" id="how-split">New calibration split</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="try">
+  <div class="wrap">
+    <div class="section-head column">
+      <p class="eyebrow">Playground</p>
+      <h2>Six scores, three predictors, seven trained models</h2>
+      <p class="lead">Pick a graph, a model and a method. The page calibrates on random halves of the test queries and evaluates on the other halves, as the library's experiments do.</p>
+      <div class="ruled" aria-hidden="true"></div>
+    </div>
+    <div class="bench">
+      <form class="toolbar" id="try-controls" aria-label="Playground settings">
+        <div class="field"><label for="try-dataset">Graph</label><select id="try-dataset"></select></div>
+        <div class="field"><label for="try-model">Model</label><select id="try-model"></select></div>
+        <div class="field"><label for="try-score">Nonconformity score</label>
+          <select id="try-score">
+            <option value="softmax">Softmax (1 − probability)</option>
+            <option value="minmax">MinMax (distance from the top)</option>
+            <option value="neg">Neg (raw score)</option>
+            <option value="aps">APS (cumulative probability)</option>
+            <option value="raps">RAPS (APS + rank penalty)</option>
+            <option value="rank">Rank (top-k)</option>
+          </select>
+        </div>
+        <div class="field"><span id="try-method-label">Predictor</span>
+          <div class="segmented" role="group" aria-labelledby="try-method-label" id="try-method">
+            <button type="button" data-method="split" aria-pressed="true">Split CP</button>
+            <button type="button" data-method="mondrian" aria-pressed="false">Mondrian CP</button>
+            <button type="button" data-method="condkgcp" aria-pressed="false">CondKGCP</button>
+          </div>
+        </div>
+        <div class="field range">
+          <label for="try-level"><span>Coverage target</span><output id="try-level-out" for="try-level">90%</output></label>
+          <input type="range" id="try-level" min="70" max="99" step="1" value="90">
+        </div>
+        <div class="field range" id="try-minsize-field" hidden>
+          <label for="try-minsize"><span>Merge relations below (queries)</span><output id="try-minsize-out" for="try-minsize">20</output></label>
+          <input type="range" id="try-minsize" min="2" max="80" step="1" value="20">
+        </div>
+        <div class="field range" id="try-gamma-field" hidden>
+          <label for="try-gamma"><span>Rank calibration γ</span><output id="try-gamma-out" for="try-gamma">0.50</output></label>
+          <input type="range" id="try-gamma" min="0" max="1" step="0.05" value="0.5">
+        </div>
+        <button type="button" id="try-resample">New splits</button>
+      </form>
+
+      <div class="tiles" id="try-tiles" aria-live="polite"></div>
+
+      <div class="grid-2">
+        <div class="bench">
+          <figure class="panel">
+            <div class="panel-head"><div><div class="chart-title">Coverage of each calibration split</div><div class="chart-sub" id="try-splits-sub"></div></div><button type="button" class="table-toggle" data-table="try-splits">Table</button></div>
+            <div class="panel-body"><div class="stage chart" id="try-splits"></div></div>
+          </figure>
+          <figure class="panel">
+            <div class="panel-head"><div><div class="chart-title">How large the answer sets are</div><div class="chart-sub" id="try-sizes-sub"></div></div><button type="button" class="table-toggle" data-table="try-sizes">Table</button></div>
+            <div class="panel-body"><div class="stage chart" id="try-sizes"></div></div>
+          </figure>
+        </div>
+        <figure class="panel">
+          <div class="panel-head"><div><div class="chart-title">Coverage per relation</div><div class="chart-sub" id="try-relations-sub"></div></div><button type="button" class="table-toggle" data-table="try-relations">Table</button></div>
+          <div class="panel-body"><div class="stage chart" id="try-relations"></div></div>
+        </figure>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <div><div class="chart-title">Answer sets of one split</div><div class="chart-sub" id="try-list-sub"></div></div>
+          <label class="note"><input type="checkbox" id="try-missed"> missed only</label>
+          <input type="search" id="try-search" placeholder="Filter, e.g. treats" aria-label="Filter the queries">
+        </div>
+        <div class="explorer">
+          <div class="query-list" id="try-list" role="listbox" aria-label="Test queries"></div>
+          <div class="detail" id="try-detail" aria-live="polite"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="conditional">
+  <div class="wrap">
+    <div class="section-head column">
+      <p class="eyebrow">Paper 2 · Findings of ACL 2025 · CondKGCP</p>
+      <h2>Ninety percent on average can hide relations that are covered far less</h2>
+      <p class="lead">Split CP promises coverage over all queries together. Calibrating each relation on its own fixes that, but rare relations then have too few held-out queries and get every entity as their answer. CondKGCP merges rare relations into similar ones and caps the sets by rank.</p>
+      <div class="ruled" aria-hidden="true"></div>
+    </div>
+    <div class="bench">
+      <ol class="steps" id="cond-steps" aria-label="From split CP to CondKGCP">
+        <li><button type="button" data-step="1"><span class="n">1</span> Split CP: uneven</button></li>
+        <li><button type="button" data-step="2"><span class="n">2</span> Per relation: even, but huge sets</button></li>
+        <li><button type="button" data-step="3"><span class="n">3</span> Merge similar relations</button></li>
+        <li><button type="button" data-step="4"><span class="n">4</span> Cap by rank: CondKGCP</button></li>
+      </ol>
+      <form class="toolbar" id="cond-controls" aria-label="CondKGCP settings">
+        <div class="field"><label for="cond-model">Graph and model</label><select id="cond-model"></select></div>
+        <div class="field range">
+          <label for="cond-level"><span>Coverage target</span><output id="cond-level-out" for="cond-level">90%</output></label>
+          <input type="range" id="cond-level" min="70" max="97" step="1" value="90">
+        </div>
+        <div class="field range">
+          <label for="cond-minsize"><span>Merge relations below (queries)</span><output id="cond-minsize-out" for="cond-minsize">20</output></label>
+          <input type="range" id="cond-minsize" min="2" max="80" step="1" value="20">
+        </div>
+        <div class="field range">
+          <label for="cond-gamma"><span>Rank calibration γ</span><output id="cond-gamma-out" for="cond-gamma">1.00</output></label>
+          <input type="range" id="cond-gamma" min="0" max="1" step="0.05" value="1">
+        </div>
+        <button type="button" class="primary" id="cond-play">Play the four steps</button>
+      </form>
+      <div class="grid-2">
+        <figure class="panel">
+          <div class="panel-head"><div><div class="chart-title">Every relation, placed by the similarity of its embedding</div><div class="chart-sub" id="cond-map-sub"></div></div></div>
+          <div class="panel-body">
+            <div class="stage chart" id="cond-map"></div>
+            <div class="legend" id="cond-map-legend"></div>
+            <figcaption class="caption-live" id="cond-caption" aria-live="polite"></figcaption>
+          </div>
+        </figure>
+        <div class="bench">
+          <figure class="panel">
+            <div class="panel-head"><div><div class="chart-title">The trade: even coverage against set size</div><div class="chart-sub">Lower left is better. Averages over 30 calibration splits.</div></div><button type="button" class="table-toggle" data-table="cond-trade">Table</button></div>
+            <div class="panel-body"><div class="stage chart" id="cond-trade"></div></div>
+          </figure>
+          <figure class="panel">
+            <div class="panel-head"><div><div class="chart-title">On the standard benchmarks</div><div class="chart-sub">Mean set size per relation at a 90% target, Softmax score, CondKGCP's settings chosen on validation queries. From the library's result files.</div></div><button type="button" class="table-toggle" data-table="cond-bench">Table</button></div>
+            <div class="panel-body"><div class="stage chart" id="cond-bench"></div></div>
+          </figure>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="intervals">
+  <div class="wrap">
+    <div class="section-head column">
+      <p class="eyebrow">Paper 3 · EMNLP 2025 · UnKGCP</p>
+      <h2>For uncertain knowledge graphs, an interval around the confidence of a triple</h2>
+      <p class="lead">In ConceptNet, NELL or STRING, a triple holds with a confidence between 0 and 1, and a model predicts it. Conformal prediction turns that single number into an interval. UnKGCP makes the interval as wide as the model is unsure: narrow near 0 and 1, wide near one half.</p>
+      <div class="ruled" aria-hidden="true"></div>
+    </div>
+    <div class="bench">
+      <form class="toolbar" id="int-controls" aria-label="Interval settings">
+        <div class="field"><label for="int-dataset">Uncertain graph</label><select id="int-dataset"></select></div>
+        <div class="field"><label for="int-model">Model</label><select id="int-model"></select></div>
+        <div class="field"><span id="int-view-label">Interval</span>
+          <div class="segmented" role="group" aria-labelledby="int-view-label" id="int-view">
+            <button type="button" data-view="absolute" aria-pressed="false">Plain CP</button>
+            <button type="button" data-view="entropy" aria-pressed="true">UnKGCP</button>
+          </div>
+        </div>
+        <div class="field range">
+          <label for="int-level"><span>Coverage target</span><output id="int-level-out" for="int-level">90%</output></label>
+          <input type="range" id="int-level" min="70" max="99" step="1" value="90">
+        </div>
+        <button type="button" id="int-resample">New split</button>
+      </form>
+      <div class="tiles" id="int-tiles" aria-live="polite"></div>
+      <div class="grid-2">
+        <figure class="panel">
+          <div class="panel-head"><div><div class="chart-title">Predicted against true confidence</div><div class="chart-sub" id="int-plot-sub"></div></div></div>
+          <div class="panel-body">
+            <div class="stage chart" id="int-plot"></div>
+            <div class="legend" id="int-legend"></div>
+            <figcaption id="int-caption"></figcaption>
+          </div>
+        </figure>
+        <figure class="panel">
+          <div class="panel-head"><div><div class="chart-title">Intervals of some test triples</div><div class="chart-sub" id="int-list-sub"></div></div><button type="button" class="quiet" id="int-shuffle">Other triples</button></div>
+          <div class="panel-body"><div class="stage chart" id="int-list"></div></div>
+        </figure>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="use">
+  <div class="wrap">
+    <div class="section-head column">
+      <p class="eyebrow">Use it</p>
+      <h2>A few lines around the model you already have</h2>
+      <p class="lead">The library needs only PyTorch. It loads LibKGE and PyKEEN models, and takes the scores of any other pipeline as a tensor.</p>
+      <div class="ruled" aria-hidden="true"></div>
+    </div>
+    <div class="bench">
+      <div class="tabs" role="tablist" aria-label="Code examples" id="use-tabs">
+        <button type="button" role="tab" data-tab="pykeen" aria-pressed="true">PyKEEN</button>
+        <button type="button" role="tab" data-tab="libkge" aria-pressed="false">LibKGE</button>
+        <button type="button" role="tab" data-tab="logits" aria-pressed="false">Your own scores</button>
+        <button type="button" role="tab" data-tab="intervals" aria-pressed="false">Intervals</button>
+        <button type="button" class="quiet" id="use-copy">Copy</button>
+      </div>
+      <pre class="code" id="use-code" tabindex="0"></pre>
+      <div class="papers">
+        <article class="panel paper">
+          <p class="venue">NAACL 2025</p>
+          <h3>Conformalized Answer Set Prediction for Knowledge Graph Embedding</h3>
+          <p>Answer sets with a coverage guarantee, for any embedding model.</p>
+          <p><a href="https://arxiv.org/abs/2408.08248">arXiv:2408.08248</a></p>
+        </article>
+        <article class="panel paper">
+          <p class="venue">Findings of ACL 2025</p>
+          <h3>Predicate-Conditional Conformalized Answer Sets for Knowledge Graph Embeddings</h3>
+          <p>CondKGCP: coverage per relation with small sets.</p>
+          <p><a href="https://arxiv.org/abs/2505.16877">arXiv:2505.16877</a></p>
+        </article>
+        <article class="panel paper">
+          <p class="venue">EMNLP 2025</p>
+          <h3>Certainty in Uncertainty: Reasoning over Uncertain Knowledge Graphs with Statistical Guarantees</h3>
+          <p>UnKGCP: intervals for the confidence of triples.</p>
+          <p><a href="https://arxiv.org/abs/2510.24754">arXiv:2510.24754</a></p>
+        </article>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <p class="eyebrow">What this page computes</p>
+    <div class="prose column">
+      <p class="note">No model runs here. The page loads what one trained model of each kind predicted for its test queries (<code>scripts/export_demo.py</code>), and repeats the library's calibration in JavaScript (<code>engine.js</code>). The files also hold results that the library computed from the same numbers, which the page recomputes as a check:</p>
+      <p class="check-line" id="verify-line"><span>Checking the JavaScript against kgcp…</span></p>
+      <p><button type="button" id="verify-all">Check all model files</button></p>
+      <div id="verify-table" class="table-view" hidden></div>
+      <p class="note">Data: Nations, UMLS and Kinship (Kok and Domingos, 2007), with models trained with LibKGE; NL27k (NELL), CN15k (ConceptNet, CC BY-SA 4.0) and PPI5k (STRING, CC BY 4.0) as released with UKGE, with the UnKGCP authors' models. The page shows the names of the test queries of the first three graphs and of a few hundred test triples of the others.</p>
+    </div>
+  </div>
+</footer>
+
+<div class="tooltip" id="tooltip" role="status" aria-hidden="true"></div>
+
+<script src="engine.js"></script>
+<script src="data/index.js"></script>
+<script src="data/sets-umls-distmult.js"></script>
+<script src="data/sets-nations-distmult.js"></script>
+<script src="ui.js"></script>
+<script src="hero.js"></script>
+<script src="how.js"></script>
+<script src="playground.js"></script>
+<script src="conditional.js"></script>
+<script src="intervals.js"></script>
+<script src="use.js"></script>
+</body>
+</html>

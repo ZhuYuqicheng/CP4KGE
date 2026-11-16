@@ -5,7 +5,24 @@ description = "Conformal prediction for knowledge graph embeddings."
 readme = "README.md"
 authors = [{ name = "Yuqicheng Zhu" }]
 requires-python = ">=3.10"
-dependencies = ["libkge", "torch>=2.0", "unkge"]
+# kgcp itself needs only PyTorch: it calibrates the logits (or confidences) of any model.
+# The backends that load models are optional: the extra below, and [dependency-groups].
+dependencies = ["torch>=2.0"]
+keywords = [
+    "knowledge graph embedding",
+    "conformal prediction",
+    "uncertainty quantification",
+    "link prediction",
+]
+classifiers = [
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Typing :: Typed",
+]
+
+[project.optional-dependencies]
+pykeen = ["pykeen>=1.10"]  # the PyKEEN backend: kgcp.PyKEEN
 
 [project.urls]
 Repository = "https://github.com/ZhuYuqicheng/CP4KGE"
@@ -16,13 +33,21 @@ dev = [
     "ipykernel>=7.3.0",
     "matplotlib>=3.10.9",
     "optuna>=5.0.0",
+    "pykeen>=1.10",
     "pytest",
     "scipy>=1.15.3",
     "tqdm>=4.70.1",
 ]
+# The LibKGE backend (kgcp.LibKGE) and the models of uncertain knowledge graphs: the
+# packages in third_party/. They are not on PyPI, so they are a dependency group of this
+# repository, not an extra of the published package (which could not name them).
+libkge = ["libkge", "unkge"]
 modal = [
     "modal>=1.6.1",
 ]
+
+[tool.uv]
+default-groups = ["dev", "libkge"]  # what `uv sync` installs in a clone
 
 [tool.uv.sources]
 libkge = { path = "third_party/libkge", editable = true }
@@ -34,6 +59,11 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/kgcp"]
+
+# Without this list, the source distribution would hold every file of the repository that
+# .gitignore does not name: results, notebooks, third_party/, local drafts.
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/tests", "/README.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

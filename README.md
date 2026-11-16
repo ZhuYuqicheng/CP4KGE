@@ -1,10 +1,21 @@
 # KGCP: conformal prediction for knowledge graph embeddings
 
 `kgcp` turns the scores of a trained knowledge graph embedding (KGE) model into answer sets that contain the true answer with a chosen
-probability (e.g. 90%). Models are trained with [LibKGE](https://github.com/uma-pi1/kge),
-patched for recent PyTorch and Apple Silicon; other pipelines can plug in their scores.
+probability (e.g. 90%). It loads models of [LibKGE](https://github.com/uma-pi1/kge)
+(vendored here, patched for recent PyTorch and Apple Silicon) and of
+[PyKEEN](https://github.com/pykeen/pykeen); other pipelines can plug in their scores.
 For uncertain knowledge graphs, it turns a model's predicted confidence of a triple into
 an interval that contains the true confidence with a chosen probability.
+
+## Demo
+
+[docs/demo](docs/demo/) is an interactive page that shows how the three methods work, on
+the outputs of real models: open `docs/demo/index.html` in a browser. It animates split
+conformal prediction, CondKGCP and UnKGCP step by step, and recomputes answer sets and
+intervals as you change the coverage target, the score or the predictor. No model runs
+in the browser: the page repeats kgcp's calibration in JavaScript and checks itself
+against kgcp (see [docs/demo/README.md](docs/demo/README.md), also for publishing it with
+GitHub Pages).
 
 ## Layout
 
@@ -14,6 +25,7 @@ cloud/                hyperparameter tuning on cloud GPUs (Modal)
 configs/              training configurations (tuned ones: see docs/)
 models/               trained models of the tuned configurations (downloaded, git-ignored)
 docs/                 conformal prediction and hyperparameter tuning: protocols, results
+docs/demo/            the interactive demo page (static; data from scripts/export_demo.py)
 notebooks/            Jupyter notebooks: a guide to kgcp and investigations
 results/              conformal prediction and tuning results
 scripts/              dataset download, hyperparameter tuning, conformal experiments
@@ -25,14 +37,36 @@ third_party/unkge/    UnKGCP's uncertain-KG models (UKGE, PASSLEAF, BEUrRE) as L
 runs/                 training outputs (git-ignored)
 ```
 
-## Setup
+## Install
 
-Requires [uv](https://docs.astral.sh/uv/). This creates `.venv` with the locked
-dependencies, and `kgcp` and LibKGE installed in editable mode:
+`kgcp` itself needs only PyTorch. To calibrate the scores of your own models, from any
+KGE pipeline (see [scores of another pipeline](#scores-of-another-pipeline)):
 
 ```bash
+pip install "kgcp @ git+https://github.com/ZhuYuqicheng/CP4KGE"
+```
+
+With the extra `pykeen`, it also installs PyKEEN, for [PyKEEN models](#pykeen-models):
+
+```bash
+pip install "kgcp[pykeen] @ git+https://github.com/ZhuYuqicheng/CP4KGE"
+```
+
+To load LibKGE models, such as the [trained models](#trained-models) below, to train
+models and to rerun the experiments, clone the repository. With
+[uv](https://docs.astral.sh/uv/), this creates `.venv` with the locked dependencies, and
+`kgcp`, LibKGE and the uncertain-KG models of `third_party/unkge` installed in editable
+mode:
+
+```bash
+git clone https://github.com/ZhuYuqicheng/CP4KGE && cd CP4KGE
 uv sync
 ```
+
+LibKGE is not on PyPI, and it reads its datasets from its own folder, so `kgcp.LibKGE`
+works from a clone only (without uv:
+`pip install -e third_party/libkge -e third_party/unkge -e .`). `uv sync --no-group libkge`
+leaves the two packages out.
 
 On Linux x86_64, the locked PyTorch wheel targets CUDA 13. If your GPU driver is
 older, point uv at a matching [PyTorch index](https://docs.astral.sh/uv/guides/integration/pytorch/).
@@ -105,8 +139,55 @@ merged = kgcp.MergedRelations(model.relation_embeddings(), min_size=50)
 cp = kgcp.CondKGCP(alpha=0.1, groups=merged, gamma=0.01).calibrate(cal)
 ```
 
-Another KGE pipeline only needs to provide `[queries, entities]` logits: pass them to
-`nonconformity` instead of a model (and relation embeddings to `MergedRelations`).
+### PyKEEN models
+
+`kgcp.PyKEEN` wraps a trained PyKEEN model and its dataset; everything else is the same
+as for `kgcp.LibKGE`. Nations ships with PyKEEN, so this runs after
+`pip install "kgcp[pykeen] @ ..."` alone, in about a minute on a laptop CPU:
+
+```python
+import kgcp
+from pykeen.datasets import Nations
+from pykeen.pipeline import pipeline
+
+dataset = Nations()
+result = pipeline(dataset=dataset, model="DistMult", training_kwargs={"num_epochs": 200})
+
+model = kgcp.PyKEEN(result.model, dataset)
+kg = model.kg
+queries = kgcp.Queries.from_triples(kg.split("test"))
+scores = kgcp.nonconformity(model, queries, kgcp.Softmax(), known=kg.known("train", "valid"))
+
+cal, test = scores.split(0.5)
+sets = kgcp.SplitConformal(alpha=0.1).calibrate(cal).predict(test)
+kgcp.evaluate(sets, alpha=0.1)  # coverage, set size, per-relation coverage gaps, ...
+[kg.entities[e] for e in sets.mask[0].nonzero().flatten()]  # the answer set of a query
+```
+
+`tests/test_pykeen.py` checks that the filtered ranks of these scores give the metrics of
+PyKEEN's own evaluator, for head and tail queries, also for models trained with inverse
+triples.
+
+### Scores of another pipeline
+
+Another KGE pipeline only needs to provide `[queries, entities]` logits (higher = more
+plausible): pass them to `nonconformity` instead of a model, and relation embeddings to
+`MergedRelations`. This needs no KGE library, only PyTorch:
+
+```python
+import kgcp
+
+# test and train: [m, 3] id triples (head, relation, tail), of E entities and R relations
+queries = kgcp.Queries.from_triples(test)  # the tail queries, then the head queries
+logits = ...  # [2m, E]: your model's scores of all entities for each of the queries
+known = kgcp.KnownAnswers(train, num_entities=E, num_relations=R)
+scores = kgcp.nonconformity(logits, queries, kgcp.Softmax(), known=known)
+
+cal, test = scores.split(0.5)
+sets = kgcp.SplitConformal(alpha=0.1).calibrate(cal).predict(test)
+```
+
+### Results
 
 At α = 0.1, the tuned models give the following mean set sizes with the Softmax score,
 calibrated on random halves of the test queries (5 seeds × 100 splits; marginal
