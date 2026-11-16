@@ -1,4 +1,8 @@
-"""KGE models that score all candidate answers of queries."""
+"""KGE models that score all candidate answers of queries.
+
+kgcp needs only PyTorch. A backend imports its KGE library when a model is loaded, so the
+library is needed only by those who use the backend.
+"""
 
 from __future__ import annotations
 
@@ -51,9 +55,16 @@ class LibKGE:
     """
 
     def __init__(self, checkpoint: str | Path, device: str = "auto"):
-        from kge import Config, Dataset
-        from kge.model import KgeModel
-        from kge.util.io import load_checkpoint
+        try:
+            from kge import Config, Dataset
+            from kge.model import KgeModel
+            from kge.util.io import load_checkpoint
+        except ImportError as error:
+            raise ImportError(
+                "kgcp.LibKGE needs LibKGE, which is not on PyPI: it is installed from a clone "
+                "of the kgcp repository, where it finds its datasets, with `uv sync` (or "
+                "`pip install -e third_party/libkge -e third_party/unkge`)"
+            ) from error
 
         path = Path(checkpoint)
         if path.is_dir():
@@ -119,6 +130,77 @@ class LibKGE:
         if isinstance(self.model, ReciprocalRelationsModel):
             embeddings = torch.cat([embeddings[:num_relations], embeddings[num_relations:]], 1)
         return embeddings.reshape(num_relations, -1).float().cpu()
+
+
+class PyKEEN:
+    """A trained PyKEEN model with its dataset: a `pykeen.datasets.Dataset`, or any object
+    whose `training`, `testing` and (optional) `validation` are the triples factories with
+    the ids that the model was trained with. They become the splits train, test and valid.
+
+    The scores are those of PyKEEN's `predict_t` and `predict_h`: a model trained with
+    inverse triples scores head queries with the inverse relations, as in PyKEEN's own
+    evaluation. `device` moves the model; by default it stays where it is.
+    """
+
+    def __init__(self, model, dataset, device: str | None = None):
+        if device is not None:
+            model = model.to(device)
+        self.model = model.eval()
+        self.device = model.device
+
+        factories = {"train": dataset.training, "test": dataset.testing}
+        if getattr(dataset, "validation", None) is not None:
+            factories["valid"] = dataset.validation
+        training = dataset.training
+        num_relations = training.real_num_relations  # without the inverse relations
+        for kind, n, expected in (
+            ("entities", model.num_entities, training.num_entities),
+            ("relations", model.num_real_relations, num_relations),
+        ):
+            if n != expected:
+                raise ValueError(f"the model has {n} {kind}, but the dataset {expected}")
+        name = getattr(dataset, "get_normalized_name", lambda: type(dataset).__name__)()
+        self.kg = KG(
+            name=name,
+            splits={split: factory.mapped_triples.long() for split, factory in factories.items()},
+            entities=_labels(training, "entity_id_to_label", training.num_entities),
+            relations=_labels(training, "relation_id_to_label", num_relations),
+        )
+
+    @torch.no_grad()
+    def score(self, queries: Queries) -> Tensor:
+        anchor, relation = queries.anchor, queries.relation
+        tail = queries.direction == TAIL
+        logits = torch.empty(len(queries), self.kg.num_entities, device=self.device)
+        on_device = tail.to(self.device)
+        if tail.any():
+            pairs = torch.stack([anchor[tail], relation[tail]], dim=1)
+            logits[on_device] = self.model.predict_t(pairs).float()
+        if not tail.all():
+            pairs = torch.stack([relation[~tail], anchor[~tail]], dim=1)
+            logits[~on_device] = self.model.predict_h(pairs).float()
+        return logits
+
+    @torch.no_grad()
+    def relation_embeddings(self) -> Tensor:
+        """[R, d] the model's first representation of each relation, flattened, on the CPU:
+        real and imaginary parts for complex embeddings. With inverse triples, a relation's
+        representation and that of its inverse (which scores head queries), concatenated."""
+        representations = getattr(self.model, "relation_representations", None)
+        if not representations:
+            raise TypeError(f"{type(self.model).__name__} models have no relation embeddings")
+        embeddings = representations[0](indices=None)
+        if embeddings.is_complex():
+            embeddings = torch.view_as_real(embeddings)
+        # PyKEEN stores relation r in row 2r and its inverse in row 2r + 1
+        return embeddings.reshape(self.kg.num_relations, -1).float().cpu()
+
+
+def _labels(factory, attribute: str, n: int) -> list[str]:
+    """The labels of ids 0, ..., n - 1 of a PyKEEN triples factory; the ids themselves for
+    a factory without labels."""
+    labels = getattr(factory, attribute, None)
+    return [str(i) if labels is None else str(labels[i]) for i in range(n)]
 
 
 def _confidences(dataset, splits: dict[str, Tensor]) -> dict[str, Tensor]:
