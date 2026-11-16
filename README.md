@@ -7,6 +7,16 @@ probability (e.g. 90%). It loads models of [LibKGE](https://github.com/uma-pi1/k
 For uncertain knowledge graphs, it turns a model's predicted confidence of a triple into
 an interval that contains the true confidence with a chosen probability.
 
+## Demo
+
+[docs/demo](docs/demo/) is an interactive page that shows how the three methods work, on
+the outputs of real models: open `docs/demo/index.html` in a browser. It animates split
+conformal prediction, CondKGCP and UnKGCP step by step, and recomputes answer sets and
+intervals as you change the coverage target, the score or the predictor. No model runs
+in the browser: the page repeats kgcp's calibration in JavaScript and checks itself
+against kgcp (see [docs/demo/README.md](docs/demo/README.md), also for publishing it with
+GitHub Pages).
+
 ## Layout
 
 ```
@@ -15,6 +25,7 @@ cloud/                hyperparameter tuning on cloud GPUs (Modal)
 configs/              training configurations (tuned ones: see docs/)
 models/               trained models of the tuned configurations (downloaded, git-ignored)
 docs/                 conformal prediction and hyperparameter tuning: protocols, results
+docs/demo/            the interactive demo page (static; data from scripts/export_demo.py)
 notebooks/            Jupyter notebooks: a guide to kgcp and investigations
 results/              conformal prediction and tuning results
 scripts/              dataset download, hyperparameter tuning, conformal experiments
